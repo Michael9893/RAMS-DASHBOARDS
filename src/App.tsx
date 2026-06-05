@@ -8,6 +8,9 @@ import {
   Image as ImageIcon, Download, Upload, ChevronLeft, ChevronRight, Pause, Camera
 } from 'lucide-react';
 
+import { collection, onSnapshot, setDoc, doc, deleteDoc } from 'firebase/firestore';
+import { db } from './firebase';
+
 import { Language, SearchResult, DswdProgram, Application } from './types';
 import { DSWD_PROGRAMS, SEARCH_RESULTS, GENERAL_SEARCH_FALLBACK, COMMON_SEARCHES } from './data';
 import MascotAndLogo from './components/MascotAndLogo';
@@ -228,18 +231,21 @@ export default function App() {
     }
   ];
 
-  // Sync to backend engine helper
-  const syncNotesToServer = async (updatedNotes: RAMSNote[]) => {
-    try {
-      await fetch('/api/notes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedNotes)
+  // Synchronously fetch and bind live notes in Firestore Real-time
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'notes'), (snapshot) => {
+      const list: RAMSNote[] = [];
+      snapshot.forEach((doc) => {
+        list.push(doc.data() as RAMSNote);
       });
-    } catch (e) {
-      console.error('Failed to sync RAMS Notes to server:', e);
-    }
-  };
+      // Sort to prevent flashing layout sequence order
+      list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      setNotes(list);
+    }, (err) => {
+      console.error('Firestore working board connection error:', err);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Determine if a note was created on the current calendar day
   const isCreatedToday = (createdAtISO: string) => {
@@ -265,8 +271,9 @@ export default function App() {
     const defaultX = Math.min(20 + (count * 30) % (boardWidth - 220), boardWidth - 220);
     const defaultY = Math.min(20 + (count * 25) % (boardHeight - 160), boardHeight - 160);
 
+    const noteId = `note-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const newNote: RAMSNote = {
-      id: `note-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: noteId,
       text: noteInput.trim(),
       color: noteColor,
       x: Math.max(0, defaultX),
@@ -274,10 +281,12 @@ export default function App() {
       createdAt: new Date().toISOString()
     };
 
-    const nextNotes = [...notes, newNote];
-    setNotes(nextNotes);
-    setNoteInput('');
-    await syncNotesToServer(nextNotes);
+    try {
+      await setDoc(doc(db, 'notes', noteId), newNote);
+      setNoteInput('');
+    } catch (err) {
+      console.error('Failed to create sticky note:', err);
+    }
   };
 
   const handleRemoveNote = async (id: string) => {
@@ -285,9 +294,11 @@ export default function App() {
     if (target && isCreatedToday(target.createdAt)) {
       return; // Block deletes for items created on the same day
     }
-    const nextNotes = notes.filter(n => n.id !== id);
-    setNotes(nextNotes);
-    await syncNotesToServer(nextNotes);
+    try {
+      await deleteDoc(doc(db, 'notes', id));
+    } catch (err) {
+      console.error('Failed to delete sticky note:', err);
+    }
   };
 
   // Draggable pointer capturing math keeping nodes fully bound
@@ -302,11 +313,15 @@ export default function App() {
     const offsetX = e.clientX - rect.left;
     const offsetY = e.clientY - rect.top;
 
-    let currentNotes = [...notes];
+    const targetNote = notes.find(n => n.id === id);
+    if (!targetNote) return;
+
+    let newX = targetNote.x;
+    let newY = targetNote.y;
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
-      let newX = moveEvent.clientX - boardRect.left - offsetX;
-      let newY = moveEvent.clientY - boardRect.top - offsetY;
+      newX = moveEvent.clientX - boardRect.left - offsetX;
+      newY = moveEvent.clientY - boardRect.top - offsetY;
 
       const maxLimitX = boardRect.width - rect.width;
       const maxLimitY = boardRect.height - rect.height;
@@ -314,14 +329,21 @@ export default function App() {
       newX = Math.max(0, Math.min(newX, maxLimitX));
       newY = Math.max(0, Math.min(newY, maxLimitY));
 
-      currentNotes = currentNotes.map(n => n.id === id ? { ...n, x: newX, y: newY } : n);
-      setNotes(currentNotes);
+      setNotes(prev => prev.map(n => n.id === id ? { ...n, x: newX, y: newY } : n));
     };
 
     const handlePointerUp = async () => {
       document.removeEventListener('pointermove', handlePointerMove);
       document.removeEventListener('pointerup', handlePointerUp);
-      await syncNotesToServer(currentNotes);
+      try {
+        await setDoc(doc(db, 'notes', id), {
+          ...targetNote,
+          x: newX,
+          y: newY
+        });
+      } catch (err) {
+        console.error('Failed to sync note position on release:', err);
+      }
     };
 
     document.addEventListener('pointermove', handlePointerMove);
@@ -340,37 +362,20 @@ export default function App() {
     description?: string;
   }
 
-  // Shared database sync polling for third parties
+  // Real-time Photos listener inside App.tsx
   useEffect(() => {
-    let active = true;
-
-    const fetchData = async () => {
-      try {
-        const [notesRes, photosRes] = await Promise.all([
-          fetch('/api/notes'),
-          fetch('/api/photos')
-        ]);
-        if (!active) return;
-
-        if (notesRes.ok) {
-          const notesData = await notesRes.json();
-          setNotes(notesData);
-        }
-        if (photosRes.ok) {
-          const photosData = await photosRes.json();
-          setPhotos(photosData);
-        }
-      } catch (err) {
-        console.info("Shared sync: server initializing or connecting...");
-      }
-    };
-
-    fetchData();
-    const interval = setInterval(fetchData, 4000); // Polling every 4 seconds for complete near-realtime multi-user sync!
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
+    const unsubscribe = onSnapshot(collection(db, 'photos'), (snapshot) => {
+      const list: RAMSPhoto[] = [];
+      snapshot.forEach((doc) => {
+        list.push(doc.data() as RAMSPhoto);
+      });
+      // Sort descending by creation date
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setPhotos(list);
+    }, (err) => {
+      console.error('Firestore photos listener connection error:', err);
+    });
+    return () => unsubscribe();
   }, []);
 
   // Pre-populate with high-fidelity archival records images (Clean slate)
@@ -460,8 +465,9 @@ export default function App() {
           // Downscale quality to 0.7 for extremely space-efficient base64 string
           const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
 
+          const photoId = `rams-img-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
           const newPhoto: RAMSPhoto = {
-            id: `rams-img-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            id: photoId,
             url: compressedDataUrl,
             title: photoUploadTitle.trim() || file.name.substring(0, file.name.lastIndexOf('.')) || 'Uploaded RAMS Archive',
             createdAt: new Date().toISOString(),
@@ -469,28 +475,18 @@ export default function App() {
             description: `Uploaded on ${new Date().toLocaleDateString()}`
           };
 
-          // Save to server-side shared photo album store
-          fetch('/api/photos', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newPhoto)
-          })
-          .then(res => res.json())
-          .then(data => {
-            if (data.photos) {
-              setPhotos(data.photos);
-            } else {
-              setPhotos(prev => [newPhoto, ...prev]);
-            }
-            setPhotoUploadTitle('');
-            setIsCompressingPhoto(false);
-            setActiveSlideIdx(0); // Reset slideshow to newly added item
-          })
-          .catch(err => {
-            console.error('Failed to sync snapshot to backend:', err);
-            setPhotoUploadError('Database integration error, failed to upload.');
-            setIsCompressingPhoto(false);
-          });
+          // Save to Firestore cloud database
+          setDoc(doc(db, 'photos', photoId), newPhoto)
+            .then(() => {
+              setPhotoUploadTitle('');
+              setIsCompressingPhoto(false);
+              setActiveSlideIdx(0); // Reset slideshow to newly added item
+            })
+            .catch(err => {
+              console.error('Failed to save snapshot to Firestore:', err);
+              setPhotoUploadError('Database integration error, failed to upload.');
+              setIsCompressingPhoto(false);
+            });
         }
       };
       img.onerror = () => {
@@ -507,14 +503,16 @@ export default function App() {
   };
 
   // Browser safe file downloader
-  const handleDownloadPhoto = (photo: RAMSPhoto) => {
-    // Notify backend to increment metrics
-    fetch(`/api/photos/${photo.id}/download`, { method: 'POST' })
-      .then(res => res.json())
-      .then(data => {
-        if (data.photos) setPhotos(data.photos);
-      })
-      .catch(err => console.error('Error tracking download counts:', err));
+  const handleDownloadPhoto = async (photo: RAMSPhoto) => {
+    // Notify database to increment download metric counts
+    try {
+      await setDoc(doc(db, 'photos', photo.id), {
+        ...photo,
+        downloads: (photo.downloads || 0) + 1
+      });
+    } catch (err) {
+      console.error('Error tracking download counts:', err);
+    }
 
     // For base64 directly trigger browser download
     if (photo.url.startsWith('data:')) {
@@ -550,15 +548,10 @@ export default function App() {
   const handleRemovePhoto = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      const res = await fetch(`/api/photos/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.photos) setPhotos(data.photos);
-      }
+      await deleteDoc(doc(db, 'photos', id));
     } catch (err) {
-      console.error('Failed to trigger deletion on backend:', err);
+      console.error('Failed to trigger deletion in Firestore:', err);
     }
-    setPhotos(prev => prev.filter(p => p.id !== id));
     if (lightboxIndex !== null) {
       setLightboxIndex(null);
     }

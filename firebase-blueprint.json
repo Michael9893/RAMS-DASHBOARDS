@@ -1,0 +1,80 @@
+{
+  "entities": {
+    "Note": {
+      "title": "Working Board Note",
+      "description": "Sticky notes dragged, pinned, and organized on the bulletin board.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique note identifier."
+        },
+        "text": {
+          "type": "string",
+          "description": "The textual body or memo of the sticky note."
+        },
+        "color": {
+          "type": "string",
+          "description": "CSS and tailwind color styles for the card."
+        },
+        "x": {
+          "type": "number",
+          "description": "Horizontal position in pixels on the board."
+        },
+        "y": {
+          "type": "number",
+          "description": "Vertical position in pixels on the board."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO timestamp when the sticky note was drafted."
+        }
+      },
+      "required": ["id", "text", "color", "x", "y", "createdAt"]
+    },
+    "Photo": {
+      "title": "Album Photo Snapshot",
+      "description": "A high-fidelity photo record snapshot of the day compiled in the shared slideshow and photo album.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique image file identifier."
+        },
+        "url": {
+          "type": "string",
+          "description": "Direct image data or web link URL of the photo."
+        },
+        "title": {
+          "type": "string",
+          "description": "High-fidelity title of the snapshot."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO timestamp of upload."
+        },
+        "downloads": {
+          "type": "number",
+          "description": "Visual record of click download events."
+        },
+        "description": {
+          "type": "string",
+          "description": "Additional annotation descriptive metadata."
+        }
+      },
+      "required": ["id", "url", "title", "createdAt", "downloads"]
+    }
+  },
+  "firestore": {
+    "/notes/{noteId}": {
+      "schema": "Note",
+      "description": "Shared real-time bulletin board sticky note document."
+    },
+    "/photos/{photoId}": {
+      "schema": "Photo",
+      "description": "Shared physical snap album records library."
+    }
+  }
+}

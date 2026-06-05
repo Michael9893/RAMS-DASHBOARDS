@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Catch-All Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common Helpers
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Validation Blueprints
+    function isValidNote(data) {
+      return data.keys().hasAll(['id', 'text', 'color', 'x', 'y', 'createdAt'])
+        && data.keys().size() == 6
+        && data.id is string && data.id.size() <= 128
+        && data.text is string && data.text.size() <= 1000
+        && data.color is string && data.color.size() <= 200
+        && data.x is number
+        && data.y is number
+        && data.createdAt is string;
+    }
+
+    function isValidPhoto(data) {
+      return data.keys().hasAll(['id', 'url', 'title', 'createdAt', 'downloads'])
+        && (data.keys().size() == 5 || (data.keys().size() == 6 && data.keys().hasAll(['description'])))
+        && data.id is string && data.id.size() <= 128 && data.url is string && data.url.size() <= 20971520
+        && data.title is string && data.title.size() <= 200
+        && data.createdAt is string
+        && data.downloads is number
+        && (!data.keys().hasAll(['description']) || (data.description is string && data.description.size() <= 1000));
+    }
+
+    // 2. Match note documents
+    match /notes/{noteId} {
+      allow read: if true;
+      allow create: if isValidId(noteId) && isValidNote(incoming());
+      allow update: if isValidId(noteId) && isValidNote(incoming());
+      allow delete: if true;
+    }
+
+    // 3. Match photos album documents
+    match /photos/{photoId} {
+      allow read: if true;
+      allow create: if isValidId(photoId) && isValidPhoto(incoming());
+      allow update: if isValidId(photoId) && isValidPhoto(incoming());
+      allow delete: if true;
+    }
+  }
+}
