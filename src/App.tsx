@@ -9,7 +9,54 @@ import {
 } from 'lucide-react';
 
 import { collection, onSnapshot, setDoc, doc, deleteDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 import { Language, SearchResult, DswdProgram, Application } from './types';
 import { DSWD_PROGRAMS, SEARCH_RESULTS, GENERAL_SEARCH_FALLBACK, COMMON_SEARCHES } from './data';
@@ -242,7 +289,7 @@ export default function App() {
       list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       setNotes(list);
     }, (err) => {
-      console.error('Firestore working board connection error:', err);
+      handleFirestoreError(err, OperationType.GET, 'notes');
     });
     return () => unsubscribe();
   }, []);
@@ -285,7 +332,7 @@ export default function App() {
       await setDoc(doc(db, 'notes', noteId), newNote);
       setNoteInput('');
     } catch (err) {
-      console.error('Failed to create sticky note:', err);
+      handleFirestoreError(err, OperationType.CREATE, `notes/${noteId}`);
     }
   };
 
@@ -297,7 +344,7 @@ export default function App() {
     try {
       await deleteDoc(doc(db, 'notes', id));
     } catch (err) {
-      console.error('Failed to delete sticky note:', err);
+      handleFirestoreError(err, OperationType.DELETE, `notes/${id}`);
     }
   };
 
@@ -342,7 +389,7 @@ export default function App() {
           y: newY
         });
       } catch (err) {
-        console.error('Failed to sync note position on release:', err);
+        handleFirestoreError(err, OperationType.UPDATE, `notes/${id}`);
       }
     };
 
@@ -373,7 +420,7 @@ export default function App() {
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setPhotos(list);
     }, (err) => {
-      console.error('Firestore photos listener connection error:', err);
+      handleFirestoreError(err, OperationType.GET, 'photos');
     });
     return () => unsubscribe();
   }, []);
@@ -483,9 +530,7 @@ export default function App() {
               setActiveSlideIdx(0); // Reset slideshow to newly added item
             })
             .catch(err => {
-              console.error('Failed to save snapshot to Firestore:', err);
-              setPhotoUploadError('Database integration error, failed to upload.');
-              setIsCompressingPhoto(false);
+              handleFirestoreError(err, OperationType.CREATE, `photos/${photoId}`);
             });
         }
       };
@@ -511,7 +556,7 @@ export default function App() {
         downloads: (photo.downloads || 0) + 1
       });
     } catch (err) {
-      console.error('Error tracking download counts:', err);
+      handleFirestoreError(err, OperationType.UPDATE, `photos/${photo.id}`);
     }
 
     // For base64 directly trigger browser download
@@ -550,7 +595,7 @@ export default function App() {
     try {
       await deleteDoc(doc(db, 'photos', id));
     } catch (err) {
-      console.error('Failed to trigger deletion in Firestore:', err);
+      handleFirestoreError(err, OperationType.DELETE, `photos/${id}`);
     }
     if (lightboxIndex !== null) {
       setLightboxIndex(null);
