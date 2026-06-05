@@ -539,9 +539,9 @@ export const SEARCH_RESULTS: SearchResult[] = [
   {
     id: 'r4',
     title: {
-      en: 'How to check if you are registered in Listahanan Database | DSWD Portal',
-      fil: 'Paano malalaman kung ikaw ay nakalista sa Listahanan Database | DSWD',
-      ceb: 'Unsaon pagtan-aw kon nakalista ba ka sa Listahanan Database | DSWD'
+      en: 'How to check if you are registered in Listahanan Database | RAMS FAM Portal',
+      fil: 'Paano malalaman kung ikaw ay nakalista sa Listahanan Database | RAMS FAM Portal',
+      ceb: 'Unsaon pagtan-aw kon nakalista ba ka sa Listahanan Database | RAMS FAM Portal'
     },
     url: 'https://listahanan.dswd.gov.ph/query',
     snippet: {
@@ -574,9 +574,9 @@ export const GENERAL_SEARCH_FALLBACK = (query: string): SearchResult => {
   return {
     id: `fallback-${Date.now()}`,
     title: {
-      en: `Search results for "${query}" | DSWD Information Portal`,
-      fil: `Mga resulta ng paghahanap para sa "${query}" | DSWD Portal`,
-      ceb: `Mga resulta sa pagpangita alang sa "${query}" | DSWD Portal`
+      en: `Search results for "${query}" | RAMS FAM Portal`,
+      fil: `Mga resulta ng paghahanap para sa "${query}" | RAMS FAM Portal`,
+      ceb: `Mga resulta sa pagpangita alang sa "${query}" | RAMS FAM Portal`
     },
     url: `https://www.dswd.gov.ph/search?q=${encodeURIComponent(query)}`,
     snippet: {

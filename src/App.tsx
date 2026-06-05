@@ -1,16 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Building2, Users, Search, HelpCircle, User, Mic, Sparkles, 
   MapPin, HelpCircle as HelpIcon, ChevronDown, ListTodo, FileSpreadsheet, 
   BookOpen, ExternalLink, Calendar, CheckSquare, RefreshCw, X, Play, Volume2,
-  Plus, Trash2, Globe, Link as LinkIcon
+  Plus, Trash2, Globe, Link as LinkIcon, Pin, Lock, Unlock,
+  Image as ImageIcon, Download, Upload, ChevronLeft, ChevronRight, Pause, Camera
 } from 'lucide-react';
 
 import { Language, SearchResult, DswdProgram, Application } from './types';
 import { DSWD_PROGRAMS, SEARCH_RESULTS, GENERAL_SEARCH_FALLBACK, COMMON_SEARCHES } from './data';
 import MascotAndLogo from './components/MascotAndLogo';
 import SearchBox from './components/SearchBox';
+// @ts-ignore
+import ramsLogo from './assets/images/rams_logo_1780695275933.png';
 import EligibilityChecker from './components/EligibilityChecker';
 import DocumentLens from './components/DocumentLens';
 import ApplicationStatus from './components/ApplicationStatus';
@@ -176,7 +179,391 @@ export default function App() {
     e.stopPropagation();
     setCustomPortals(customPortals.filter(p => p.id !== id));
   };
+
+  // =========================================================
+  // 📌 RAMS STICKY WORKING NOTES ENGINE STATE & HANDLERS
+  // =========================================================
+  interface RAMSNote {
+    id: string;
+    text: string;
+    color: string;
+    x: number;
+    y: number;
+    createdAt: string;
+  }
+
+  const boardRef = useRef<HTMLDivElement>(null);
   
+  const [notes, setNotes] = useState<RAMSNote[]>([]);
+
+  const [noteInput, setNoteInput] = useState('');
+  const [noteColor, setNoteColor] = useState('bg-amber-500/10 text-amber-200 border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50');
+
+  // Modern note theme color presets
+  const noteColors = [
+    {
+      name: 'Amber Gold',
+      class: 'bg-amber-500/10 text-amber-200 border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50',
+      dot: 'bg-amber-400'
+    },
+    {
+      name: 'Emerald Green',
+      class: 'bg-emerald-500/10 text-emerald-200 border-emerald-500/30 hover:bg-emerald-500/20 hover:border-emerald-500/50',
+      dot: 'bg-emerald-400'
+    },
+    {
+      name: 'Cyan Ocean',
+      class: 'bg-cyan-500/10 text-cyan-200 border-cyan-500/30 hover:bg-cyan-500/20 hover:border-cyan-500/50',
+      dot: 'bg-cyan-400'
+    },
+    {
+      name: 'Lavender Purple',
+      class: 'bg-purple-500/10 text-purple-200 border-purple-500/30 hover:bg-purple-500/20 hover:border-purple-505/50',
+      dot: 'bg-purple-400'
+    },
+    {
+      name: 'Rose Blush',
+      class: 'bg-rose-500/10 text-rose-200 border-rose-500/30 hover:bg-rose-500/20 hover:border-rose-505/50',
+      dot: 'bg-rose-400'
+    }
+  ];
+
+  // Sync to backend engine helper
+  const syncNotesToServer = async (updatedNotes: RAMSNote[]) => {
+    try {
+      await fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedNotes)
+      });
+    } catch (e) {
+      console.error('Failed to sync RAMS Notes to server:', e);
+    }
+  };
+
+  // Determine if a note was created on the current calendar day
+  const isCreatedToday = (createdAtISO: string) => {
+    const createdDate = new Date(createdAtISO);
+    const today = new Date();
+    return (
+      createdDate.getFullYear() === today.getFullYear() &&
+      createdDate.getMonth() === today.getMonth() &&
+      createdDate.getDate() === today.getDate()
+    );
+  };
+
+  const handleAddNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!noteInput.trim()) return;
+
+    const bRect = boardRef.current ? boardRef.current.getBoundingClientRect() : null;
+    const boardWidth = bRect ? bRect.width : 576;
+    const boardHeight = bRect ? bRect.height : 360;
+
+    const count = notes.length;
+    // Offset each newly added note so they don't stack coordinates instantly
+    const defaultX = Math.min(20 + (count * 30) % (boardWidth - 220), boardWidth - 220);
+    const defaultY = Math.min(20 + (count * 25) % (boardHeight - 160), boardHeight - 160);
+
+    const newNote: RAMSNote = {
+      id: `note-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      text: noteInput.trim(),
+      color: noteColor,
+      x: Math.max(0, defaultX),
+      y: Math.max(0, defaultY),
+      createdAt: new Date().toISOString()
+    };
+
+    const nextNotes = [...notes, newNote];
+    setNotes(nextNotes);
+    setNoteInput('');
+    await syncNotesToServer(nextNotes);
+  };
+
+  const handleRemoveNote = async (id: string) => {
+    const target = notes.find(n => n.id === id);
+    if (target && isCreatedToday(target.createdAt)) {
+      return; // Block deletes for items created on the same day
+    }
+    const nextNotes = notes.filter(n => n.id !== id);
+    setNotes(nextNotes);
+    await syncNotesToServer(nextNotes);
+  };
+
+  // Draggable pointer capturing math keeping nodes fully bound
+  const handleNoteDragStart = (id: string, e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const noteElement = e.currentTarget.parentElement;
+    if (!noteElement || !boardRef.current) return;
+
+    const rect = noteElement.getBoundingClientRect();
+    const boardRect = boardRef.current.getBoundingClientRect();
+
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+
+    let currentNotes = [...notes];
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      let newX = moveEvent.clientX - boardRect.left - offsetX;
+      let newY = moveEvent.clientY - boardRect.top - offsetY;
+
+      const maxLimitX = boardRect.width - rect.width;
+      const maxLimitY = boardRect.height - rect.height;
+
+      newX = Math.max(0, Math.min(newX, maxLimitX));
+      newY = Math.max(0, Math.min(newY, maxLimitY));
+
+      currentNotes = currentNotes.map(n => n.id === id ? { ...n, x: newX, y: newY } : n);
+      setNotes(currentNotes);
+    };
+
+    const handlePointerUp = async () => {
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+      await syncNotesToServer(currentNotes);
+    };
+
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
+  };
+
+  // =========================================================
+  // 📸 RAMS OFFICERS PHOTO ALBUM STATE & ENGINE
+  // =========================================================
+  interface RAMSPhoto {
+    id: string;
+    url: string;
+    title: string;
+    createdAt: string;
+    downloads: number;
+    description?: string;
+  }
+
+  // Shared database sync polling for third parties
+  useEffect(() => {
+    let active = true;
+
+    const fetchData = async () => {
+      try {
+        const [notesRes, photosRes] = await Promise.all([
+          fetch('/api/notes'),
+          fetch('/api/photos')
+        ]);
+        if (!active) return;
+
+        if (notesRes.ok) {
+          const notesData = await notesRes.json();
+          setNotes(notesData);
+        }
+        if (photosRes.ok) {
+          const photosData = await photosRes.json();
+          setPhotos(photosData);
+        }
+      } catch (err) {
+        console.info("Shared sync: server initializing or connecting...");
+      }
+    };
+
+    fetchData();
+    const interval = setInterval(fetchData, 4000); // Polling every 4 seconds for complete near-realtime multi-user sync!
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Pre-populate with high-fidelity archival records images (Clean slate)
+  const defaultAlbumPhotos: RAMSPhoto[] = [];
+
+  const [photos, setPhotos] = useState<RAMSPhoto[]>([]);
+
+  const [photoUploadTitle, setPhotoUploadTitle] = useState('');
+  const [photoUploadError, setPhotoUploadError] = useState('');
+  const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
+
+  // Slideshow State
+  const [activeSlideIdx, setActiveSlideIdx] = useState(0);
+  const [isSlideshowPlaying, setIsSlideshowPlaying] = useState(true);
+
+  // Lightbox Zoom state
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  // Slideshow auto-transition trigger
+  useEffect(() => {
+    let timer: any = null;
+    const itemsCount = Math.min(photos.length, 10);
+    if (isSlideshowPlaying && itemsCount > 1) {
+      timer = setInterval(() => {
+        setActiveSlideIdx(prev => (prev + 1) % itemsCount);
+      }, 5000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isSlideshowPlaying, photos]);
+
+  // Compile 10 most recent photos (or photos of the day)
+  const getSlideshowPhotos = (): RAMSPhoto[] => {
+    // Sort descending by creation date
+    const sorted = [...photos].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return sorted.slice(0, 10);
+  };
+
+  const slideshowPhotos = getSlideshowPhotos();
+  const safeSlideIdx = activeSlideIdx < slideshowPhotos.length ? activeSlideIdx : 0;
+  const currentSlide = slideshowPhotos.length > 0 ? (slideshowPhotos[safeSlideIdx] || slideshowPhotos[0]) : null;
+
+  // Compress and store image upload safely on the shared server
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setPhotoUploadError('Please select a valid image file (.jpg, .png, .webp).');
+      return;
+    }
+
+    setPhotoUploadError('');
+    setIsCompressingPhoto(true);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const MAX_WIDTH = 800;
+        const MAX_HEIGHT = 800;
+
+        // Downscale proportionally to fit within server and storage footprint safely
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          // Downscale quality to 0.7 for extremely space-efficient base64 string
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+
+          const newPhoto: RAMSPhoto = {
+            id: `rams-img-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            url: compressedDataUrl,
+            title: photoUploadTitle.trim() || file.name.substring(0, file.name.lastIndexOf('.')) || 'Uploaded RAMS Archive',
+            createdAt: new Date().toISOString(),
+            downloads: 0,
+            description: `Uploaded on ${new Date().toLocaleDateString()}`
+          };
+
+          // Save to server-side shared photo album store
+          fetch('/api/photos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newPhoto)
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (data.photos) {
+              setPhotos(data.photos);
+            } else {
+              setPhotos(prev => [newPhoto, ...prev]);
+            }
+            setPhotoUploadTitle('');
+            setIsCompressingPhoto(false);
+            setActiveSlideIdx(0); // Reset slideshow to newly added item
+          })
+          .catch(err => {
+            console.error('Failed to sync snapshot to backend:', err);
+            setPhotoUploadError('Database integration error, failed to upload.');
+            setIsCompressingPhoto(false);
+          });
+        }
+      };
+      img.onerror = () => {
+        setPhotoUploadError('Failed to parse image file.');
+        setIsCompressingPhoto(false);
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.onerror = () => {
+      setPhotoUploadError('Failed to read file.');
+      setIsCompressingPhoto(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Browser safe file downloader
+  const handleDownloadPhoto = (photo: RAMSPhoto) => {
+    // Notify backend to increment metrics
+    fetch(`/api/photos/${photo.id}/download`, { method: 'POST' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.photos) setPhotos(data.photos);
+      })
+      .catch(err => console.error('Error tracking download counts:', err));
+
+    // For base64 directly trigger browser download
+    if (photo.url.startsWith('data:')) {
+      const link = document.createElement('a');
+      link.href = photo.url;
+      const cleanTitle = photo.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      link.download = `rams_archive_${cleanTitle}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      // For Unsplash CORS URLs, we open in a clean tab configured to let the user save or we download via blob
+      fetch(photo.url)
+        .then(res => res.blob())
+        .then(blob => {
+          const blobUrl = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          const cleanTitle = photo.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+          link.download = `rams_archive_${cleanTitle}.jpg`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(blobUrl);
+        })
+        .catch(() => {
+          // Absolute failover: simply open the image url in a safe new tab for saving
+          window.open(photo.url, '_blank');
+        });
+    }
+  };
+
+  const handleRemovePhoto = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch(`/api/photos/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.photos) setPhotos(data.photos);
+      }
+    } catch (err) {
+      console.error('Failed to trigger deletion on backend:', err);
+    }
+    setPhotos(prev => prev.filter(p => p.id !== id));
+    if (lightboxIndex !== null) {
+      setLightboxIndex(null);
+    }
+  };
+
   // Modals / Overlays triggers
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [voiceStep, setVoiceStep] = useState(0); // 0: listening, 1: processing, 2: matching
@@ -330,48 +717,22 @@ export default function App() {
               transition={{ delay: 0.1, duration: 0.5 }}
               className="max-w-md w-full bg-white rounded-3xl p-8 sm:p-10 shadow-[0_20px_50px_rgba(30,58,138,0.25)] flex flex-col items-center space-y-6 text-slate-900 border border-indigo-500/10"
             >
-              <div className="flex items-center justify-center space-x-4 sm:space-x-5">
-                {/* SVG official logo shape built with absolute pixel precision */}
-                <div className="w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 animate-pulse">
-                  <svg viewBox="0 0 200 200" className="w-full h-full drop-shadow-sm">
-                    {/* Official Gold Shield Layout */}
-                    <path 
-                      d="M 25, 20 H 175 V 135 A 40 40 0 0 1 135 175 H 65 A 40 40 0 0 1 25 135 Z" 
-                      fill="white" 
-                      stroke="#fbbf24" 
-                      strokeWidth="11" 
-                      strokeLinejoin="round" 
-                    />
-                    {/* Geometric Red Heart (Center) */}
-                    <path 
-                      d="M 100,115 L 135,80 V 42 L 124,31 H 111 L 100,42 L 89,31 H 76 L 65,42 V 80 Z" 
-                      fill="#e11d48" 
-                    />
-                    {/* Dual Supportive Blue Hands / Arms */}
-                    <path 
-                      d="M 97,152 V 118 L 59,80 V 30 H 47 V 91 L 75,119 V 152 Z" 
-                      fill="#1e3a8a" 
-                    />
-                    <path 
-                      d="M 103,152 V 118 L 141,80 V 30 H 153 V 91 L 125,119 V 152 Z" 
-                      fill="#1e3a8a" 
-                    />
-                  </svg>
-                </div>
-                
-                {/* Text Logo Wordmark matches original exactly */}
-                <span className="font-sans font-black tracking-tighter text-5xl sm:text-6xl text-[#1e3a8a]">
-                  DSWD
-                </span>
+              <div className="flex items-center justify-center animate-pulse">
+                <img
+                  src={ramsLogo}
+                  alt="RAMS Records and Archives Logo"
+                  referrerPolicy="no-referrer"
+                  className="max-h-40 object-contain select-none"
+                />
               </div>
 
               {/* Bold golden bar */}
-              <div className="w-full h-0.5 bg-[#fbbf24] opacity-80"></div>
+              <div className="w-full h-0.5 bg-amber-400 opacity-80"></div>
 
               {/* Subheading */}
-              <div className="text-center space-y-1">
-                <div className="text-[11px] sm:text-[13px] font-black tracking-wide uppercase text-[#1e3a8a] leading-tight">
-                  Department of Social Welfare and Development
+              <div className="text-center space-y-1 select-none">
+                <div className="text-[12px] sm:text-[14px] font-black tracking-wide uppercase text-[#1e3a8a] leading-tight">
+                  RECORDS AND ARCHIVES MANAGEMENT SECTION
                 </div>
                 <div className="text-[9px] font-sans font-bold text-slate-400 tracking-widest uppercase">
                   Republic of the Philippines
@@ -379,7 +740,7 @@ export default function App() {
               </div>
 
               {/* Loader Slider */}
-              <div className="w-full max-w-[240px] pt-2">
+              <div className="w-full max-w-[240px] pt-1.5">
                 <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden relative border border-slate-100">
                   <div 
                     className="absolute left-0 top-0 h-full bg-[#1e3a8a] rounded-full transition-all duration-100"
@@ -394,7 +755,7 @@ export default function App() {
 
             {/* Sub label representation */}
             <div className="mt-8 text-[9px] font-mono font-bold text-indigo-400/40 uppercase tracking-widest text-center select-none">
-              Social Protection Interactive Portal
+              RAMS FAM Portal
             </div>
           </motion.div>
         )}
@@ -404,33 +765,15 @@ export default function App() {
       {!isSearching ? (
         <div className="flex flex-col flex-1">
           {/* Header Bar */}
-          <header className="bg-slate-950/60 backdrop-blur-md border-b border-white/5 py-4 px-6 md:px-8 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs font-semibold select-none">
-            <div className="flex items-center space-x-3">
+          <header className="bg-slate-950/60 backdrop-blur-md border-b border-white/5 py-4 px-6 md:px-8 flex items-center justify-center text-xs font-semibold select-none">
+            <div className="flex items-center space-x-3 justify-center">
               <Building2 className="w-4 h-4 text-indigo-400" />
               <span className="text-white font-black tracking-wider text-[11px] md:text-xs uppercase font-sans">
                 RECORDS AND ARCHIVES MANAGEMENT SECTION
               </span>
             </div>
 
-            <div className="flex items-center space-x-3.5">
-              <span className="flex items-center bg-indigo-950/45 text-indigo-300 border border-indigo-500/15 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
-                🇵🇭 DSWD FO1
-              </span>
-              <div className="flex items-center space-x-1 border border-white/10 rounded-lg p-1 bg-slate-900/50 select-none text-[10px]">
-                <button 
-                  onClick={() => setLanguage('en')}
-                  className={`px-2 py-0.5 rounded transition cursor-pointer ${language === 'en' ? 'bg-indigo-600 font-extrabold text-white shadow-md shadow-indigo-600/15' : 'text-slate-400 hover:text-white'}`}
-                >EN</button>
-                <button 
-                  onClick={() => setLanguage('fil')}
-                  className={`px-2 py-0.5 rounded transition cursor-pointer ${language === 'fil' ? 'bg-indigo-600 font-extrabold text-white shadow-md shadow-indigo-600/15' : 'text-slate-400 hover:text-white'}`}
-                >FIL</button>
-                <button 
-                  onClick={() => setLanguage('ceb')}
-                  className={`px-2 py-0.5 rounded transition cursor-pointer ${language === 'ceb' ? 'bg-indigo-600 font-extrabold text-white shadow-md shadow-indigo-600/15' : 'text-slate-400 hover:text-white'}`}
-                >CEB</button>
-              </div>
-            </div>
+
           </header>
 
           {/* Core Content */}
@@ -455,7 +798,7 @@ export default function App() {
             {/* Interactive DSWD Quick Action Buttons with custom link function */}
             <div className="w-full max-w-xl mx-auto mb-8 animate-in fade-in-50 duration-700">
               <div className="text-[10px] font-bold text-slate-550 uppercase tracking-widest mb-3.5 select-none text-center">
-                🏢 DSWD INTERACTIVE QUICK PORTALS
+                🏢 RECORDS AND ARCHIVES MANAGEMENT SECTION QUICK PORTALS
               </div>
               <div className="grid grid-cols-2 gap-3">
                 {/* Custom User Portals */}
@@ -591,14 +934,500 @@ export default function App() {
               </AnimatePresence>
             </div>
 
+            {/* ========================================================= */}
+            {/* 📌 RAMS ACTIVE WORKING NOTES BOARD                        */}
+            {/* ========================================================= */}
+            <div className="w-full max-w-2xl mx-auto mt-8 mb-10 text-left animate-in fade-in-50 slide-in-from-bottom-6 duration-700">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 select-none px-1">
+                <div className="flex items-center space-x-2">
+                  <span className="p-1.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-lg">
+                    <Pin className="w-4 h-4 text-indigo-400" />
+                  </span>
+                  <div>
+                    <h2 className="text-sm font-extrabold text-white uppercase tracking-wider font-sans">
+                      RAMS Officers Bulletin Board
+                    </h2>
+                    <p className="text-[10px] text-slate-450 leading-tight">
+                      Draft, drag, and pin temporary operational notes & archives updates.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Info badge */}
+                <div className="text-[9px] px-2.5 py-1 rounded-full bg-indigo-950/40 border border-indigo-500/15 text-indigo-300 font-semibold self-start sm:self-auto select-none">
+                  🛡️ Permanent Local Storage Active
+                </div>
+              </div>
+
+              {/* Note creator bar */}
+              <form onSubmit={handleAddNote} className="bg-slate-950/50 backdrop-blur-sm border border-white/5 rounded-2xl p-4 mb-5 flex flex-col md:flex-row gap-4 items-center shadow-lg">
+                <div className="flex-1 w-full">
+                  <input
+                    type="text"
+                    required
+                    maxLength={130}
+                    placeholder="Draft confidential memo, archiving reminder, or note... (max 130 chars)"
+                    value={noteInput}
+                    onChange={(e) => setNoteInput(e.target.value)}
+                    className="w-full bg-slate-900 border border-white/10 rounded-xl py-2.5 px-3.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition-all shadow-inner font-medium"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between w-full md:w-auto gap-4 flex-shrink-0">
+                  {/* Color selector bubble */}
+                  <div className="flex gap-1.5 items-center bg-slate-900/60 p-1.5 rounded-xl border border-white/5">
+                    {noteColors.map((col) => (
+                      <button
+                        key={col.class}
+                        type="button"
+                        onClick={() => setNoteColor(col.class)}
+                        title={col.name}
+                        className={`w-5.5 h-5.5 rounded-full ${col.dot} border transition-all relative flex items-center justify-center cursor-pointer ${noteColor === col.class ? 'border-white scale-110 shadow-md ring-2 ring-indigo-500/30' : 'border-transparent opacity-80 hover:opacity-100'}`}
+                      >
+                        {noteColor === col.class && (
+                          <div className="w-1.5 h-1.5 bg-slate-950 rounded-full" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs py-2.5 px-4.5 rounded-xl transition-all shadow-md shadow-indigo-600/10 flex items-center gap-1.5 select-none cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 animate-pulse" />
+                    <span>Pin Note</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Bulletin Workspace Board */}
+              <div 
+                ref={boardRef} 
+                className="relative w-full h-[380px] sm:h-[420px] bg-slate-950/40 backdrop-blur-md rounded-2xl border border-dashed border-indigo-500/25 overflow-hidden shadow-2xl select-none bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:20px_20px]"
+              >
+                {/* Board grid/mesh watermark */}
+                <span className="absolute bottom-3 right-4 font-mono text-[9px] text-slate-650 uppercase tracking-widest select-none pointer-events-none opacity-30">
+                  RAMS Digital Workspace Grid
+                </span>
+
+                {/* Empty State */}
+                {notes.length === 0 && (
+                  <div className="absolute inset-0 flex flex-col justify-center items-center text-center p-6 pointer-events-none select-none">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-950/30 border border-indigo-500/10 flex items-center justify-center text-indigo-400 mb-3 animate-pulse">
+                      <Pin className="w-5 h-5 rotate-45 text-indigo-455" />
+                    </div>
+                    <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider select-none">
+                      Board Empty
+                    </h3>
+                    <p className="text-[10px] text-slate-500 max-w-sm mt-1 select-none">
+                      Type a memo or update above and click "Pin Note" to pin it to this live workspace.
+                    </p>
+                  </div>
+                )}
+
+                {/* Render Draggable Sticky Notes */}
+                <AnimatePresence>
+                  {notes.map((note) => {
+                    const isToday = isCreatedToday(note.createdAt);
+                    
+                    return (
+                      <motion.div
+                        key={note.id}
+                        initial={{ opacity: 0, scale: 0.85 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+                        style={{
+                          left: `${note.x}px`,
+                          top: `${note.y}px`,
+                          position: 'absolute'
+                        }}
+                        className={`w-48 sm:w-52 p-3 rounded-xl border backdrop-blur-md shadow-lg flex flex-col justify-between ${note.color} z-10`}
+                      >
+                        {/* Note Drag/Grab Handle bar */}
+                        <div 
+                          onPointerDown={(e) => handleNoteDragStart(note.id, e)}
+                          className="flex items-center justify-between pb-1.5 mb-2 border-b border-white/5 cursor-grab active:cursor-grabbing text-[9px] font-bold tracking-widest select-none"
+                          title="Click and drag here to move note"
+                        >
+                          <span className="flex items-center gap-1 opacity-70">
+                            <Pin className="w-2.5 h-2.5 text-indigo-400 rotate-45" />
+                            RAMS MEMO
+                          </span>
+                          
+                          {isToday ? (
+                            <span className="text-yellow-400 flex items-center gap-0.5" title="Locked: Notes created today cannot be deleted until tomorrow.">
+                              <Lock className="w-2.5 h-2.5" />
+                              TODAY
+                            </span>
+                          ) : (
+                            <span className="text-emerald-400 flex items-center gap-0.5 font-bold" title="Unlocked: Archival note, delete allowed.">
+                              <Unlock className="w-2.5 h-2.5" />
+                              ARCHIVAL
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Note text box content */}
+                        <p className="text-[10px] font-medium leading-relaxed break-words text-left select-text max-h-24 overflow-y-auto pr-1">
+                          {note.text}
+                        </p>
+
+                        {/* Note footer and security triggers */}
+                        <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/5 text-[8px] font-semibold select-none">
+                          <span className="opacity-45 scale-95 origin-left">
+                            {new Date(note.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} • {new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+
+                          {isToday ? (
+                            <button
+                              type="button"
+                              disabled
+                              className="text-[8px] text-slate-500 font-extrabold flex items-center gap-0.5 bg-slate-905/40 px-1.5 py-0.5 rounded border border-white/5 cursor-not-allowed opacity-90"
+                              title="Notes cannot be deleted within the same day of creation."
+                            >
+                              <Lock className="w-2 h-2 text-slate-500" />
+                              LOCKED
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveNote(note.id)}
+                              className="text-red-400 hover:text-red-300 hover:bg-red-950/30 px-1.5 py-0.5 rounded border border-red-500/10 cursor-pointer flex items-center gap-0.5 font-bold transition-colors"
+                              title="Delete this older note permanently"
+                            >
+                              <Trash2 className="w-2 h-2" />
+                              DELETE
+                            </button>
+                          )}
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            {/* ========================================================= */}
+            {/* 📸 RAMS OFFICERS PHOTO ALBUM & LIVE SLIDESHOW             */}
+            {/* ========================================================= */}
+            <div className="w-full max-w-2xl mx-auto mt-8 mb-10 text-left animate-in fade-in-50 slide-in-from-bottom-8 duration-700">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 select-none px-1">
+                <div className="flex items-center space-x-2">
+                  <span className="p-1.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-lg">
+                    <ImageIcon className="w-4 h-4 text-indigo-400" />
+                  </span>
+                  <div>
+                    <h2 className="text-sm font-extrabold text-white uppercase tracking-wider font-sans">
+                      RAMS Officers Photo Album
+                    </h2>
+                    <p className="text-[10px] text-slate-450 leading-tight">
+                      Store snapshots permanently, preview archives, & download records files.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Counter indicator */}
+                <div className="text-[10px] text-indigo-300 font-mono font-bold bg-indigo-950/40 border border-indigo-550/15 px-2.5 py-1 rounded-full">
+                  🗂️ {photos.length} Snapshots Saved
+                </div>
+              </div>
+
+              {/* 1. DYNAMIC SLIDESHOW - 10 RECENT PICTURES OF THE DAY */}
+              {slideshowPhotos.length > 0 && currentSlide ? (
+                <div className="relative w-full h-[260px] sm:h-[300px] bg-slate-950 rounded-2xl border border-white/5 overflow-hidden shadow-2xl mb-6 group">
+                  {/* Backdrop Slide Image */}
+                  <div className="absolute inset-0 w-full h-full transition-all duration-700 ease-in-out">
+                    <img
+                      src={currentSlide.url}
+                      alt={currentSlide.title}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover opacity-60 backdrop-brightness-50"
+                    />
+                    {/* Shadow layer gradient for extreme text contrast */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-slate-950/40 pointer-events-none" />
+                  </div>
+
+                  {/* Slideshow Top Badges Bar */}
+                  <div className="absolute top-3 left-4 right-4 flex items-center justify-between z-10 select-none">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-600/90 text-white text-[8px] font-extrabold tracking-wider uppercase">
+                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                        Featured recents
+                      </span>
+                      <span className="text-[9px] font-bold text-slate-300 font-mono">
+                        Slideshow Engine
+                      </span>
+                    </div>
+
+                    <div className="text-[9px] font-bold font-mono px-2 py-0.5 rounded bg-slate-900/80 border border-white/5 text-slate-400">
+                      {safeSlideIdx + 1} of {slideshowPhotos.length}
+                    </div>
+                  </div>
+
+                  {/* Carousel Left/Right navigation over-hover arrows */}
+                  {slideshowPhotos.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSlideshowPlaying(false);
+                          setActiveSlideIdx(prev => (prev - 1 + slideshowPhotos.length) % slideshowPhotos.length);
+                        }}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 p-2 bg-slate-900/70 hover:bg-slate-800 text-white rounded-full border border-white/5 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 hover:scale-105 active:scale-95 cursor-pointer z-10"
+                        title="Previous Image"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSlideshowPlaying(false);
+                          setActiveSlideIdx(prev => (prev + 1) % slideshowPhotos.length);
+                        }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-slate-900/70 hover:bg-slate-800 text-white rounded-full border border-white/5 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 hover:scale-105 active:scale-95 cursor-pointer z-10"
+                        title="Next Image"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+
+                  {/* Playback Controls & Captions Overlay bottom strip */}
+                  <div className="absolute bottom-3 left-4 right-4 flex items-end justify-between z-10">
+                    <div className="space-y-1 max-w-[70%] text-left">
+                      <h4 className="text-[12px] sm:text-xs font-black text-white uppercase tracking-wider drop-shadow-md truncate font-sans">
+                        {currentSlide.title}
+                      </h4>
+                      <p className="text-[9px] sm:text-[10px] text-slate-300 line-clamp-1 opacity-90">
+                        {currentSlide.description || 'Permanent photographic snapshot record.'}
+                      </p>
+                      <span className="text-[8px] font-mono font-bold text-slate-400 block pb-1">
+                        🗓️ Snapshot: {new Date(currentSlide.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-2">
+                      {/* Controls strip */}
+                      <div className="flex items-center gap-1.5 bg-slate-900/80 backdrop-blur-md p-1.5 rounded-xl border border-white/10 shadow-lg">
+                        {/* Play/Pause toggle */}
+                        <button
+                          type="button"
+                          onClick={() => setIsSlideshowPlaying(!isSlideshowPlaying)}
+                          className="p-1 hover:text-white transition-colors cursor-pointer text-indigo-400"
+                          title={isSlideshowPlaying ? 'Pause Slideshow' : 'Start Slideshow'}
+                        >
+                          {isSlideshowPlaying ? (
+                            <Pause className="w-3.5 h-3.5" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5 fill-current text-emerald-400" />
+                          )}
+                        </button>
+
+                        <div className="h-3 w-px bg-white/10" />
+
+                        {/* Direct view in lightbox */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Find real index in parent photos array
+                            const realIdx = photos.findIndex(p => p.id === currentSlide.id);
+                            if (realIdx !== -1) setLightboxIndex(realIdx);
+                          }}
+                          className="p-1 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                          title="Open Fullscreen Lens"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Download slide button */}
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadPhoto(currentSlide)}
+                          className="p-1 text-slate-300 hover:text-indigo-400 transition-colors cursor-pointer"
+                          title="Download photo record"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Tick progression dots */}
+                      {slideshowPhotos.length > 1 && (
+                        <div className="flex gap-1.5 py-1">
+                          {slideshowPhotos.map((_, dotIdx) => (
+                            <button
+                              key={dotIdx}
+                              type="button"
+                              onClick={() => {
+                                setIsSlideshowPlaying(false);
+                                setActiveSlideIdx(dotIdx);
+                              }}
+                              className={`h-1.5 rounded-full transition-all cursor-pointer ${safeSlideIdx === dotIdx ? 'w-4 bg-indigo-500' : 'w-1.5 bg-slate-650 hover:bg-slate-500'}`}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full h-44 bg-slate-950/50 border border-white/5 rounded-2xl flex flex-col items-center justify-center text-center p-4 shadow-inner mb-6">
+                  <ImageIcon className="w-8 h-8 text-slate-600 mb-2" />
+                  <span className="text-xs text-slate-400 font-bold">No slideshow photos available</span>
+                  <span className="text-[10px] text-slate-500 mt-0.5">Upload records below to build the slideshow gallery.</span>
+                </div>
+              )}
+
+              {/* 2. PHOTO DIGITIZE / UPLOAD FORM */}
+              <div className="bg-slate-950/50 backdrop-blur-sm border border-white/5 rounded-2xl p-4 sm:p-5 mb-6 flex flex-col sm:flex-row gap-4 items-end shadow-xl">
+                <div className="flex-1 w-full space-y-2">
+                  <label className="block text-[10px] font-black text-slate-450 uppercase tracking-widest select-none">
+                    Snapshot Label / Description
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={60}
+                    placeholder="Enter records folder name, date, tag... (Optional)"
+                    value={photoUploadTitle}
+                    onChange={(e) => setPhotoUploadTitle(e.target.value)}
+                    className="w-full bg-slate-900 border border-white/10 rounded-xl py-2 px-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition-all font-medium"
+                  />
+                </div>
+
+                <div className="w-full sm:w-auto flex flex-col gap-2 flex-shrink-0">
+                  {photoUploadError && (
+                    <span className="text-[9px] text-red-400 font-bold font-sans self-start">
+                      ⚠️ {photoUploadError}
+                    </span>
+                  )}
+
+                  {/* Hidden Input File */}
+                  <input
+                    type="file"
+                    id="rams-album-picker"
+                    accept="image/*"
+                    onChange={handlePhotoUpload}
+                    className="hidden"
+                    disabled={isCompressingPhoto}
+                  />
+
+                  <label
+                    htmlFor="rams-album-picker"
+                    className={`bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs py-2.5 px-5 rounded-xl transition-all shadow-md shadow-indigo-600/10 flex items-center justify-center gap-2 select-none cursor-pointer ${isCompressingPhoto ? 'opacity-50 pointer-events-none' : ''}`}
+                  >
+                    {isCompressingPhoto ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Compressing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Upload Photo To Album</span>
+                      </>
+                    )}
+                  </label>
+                </div>
+              </div>
+
+              {/* 3. ALBUM PHOTO CATALOG GRID */}
+              <div className="bg-slate-950/30 border border-white/5 rounded-2xl p-4 min-h-[160px]">
+                <h3 className="text-[10px] font-black text-slate-450 uppercase tracking-widest mb-3.5 select-none pl-1">
+                  📸 Digital Snapshot Roll Gallery ({photos.length} item files)
+                </h3>
+
+                {photos.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center text-center py-10">
+                    <ImageIcon className="w-8 h-8 text-slate-700 mb-2 rotate-12" />
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-tight">Gallery Empty</h4>
+                    <p className="text-[9px] text-slate-550 mt-1 max-w-xs">Upload pictures of directories or archives above to start permanently filing records.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {photos.map((photo, index) => {
+                      return (
+                        <div
+                          key={photo.id}
+                          onClick={() => setLightboxIndex(index)}
+                          className="relative aspect-video rounded-xl overflow-hidden border border-white/5 bg-slate-900 group cursor-pointer shadow-md hover:border-indigo-505/30 hover:shadow-indigo-505/5 hover:scale-[1.02] transition-all"
+                        >
+                          {/* Image source */}
+                          <img
+                            src={photo.url}
+                            alt={photo.title}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover select-none"
+                          />
+
+                          {/* Hover action banner overlay */}
+                          <div className="absolute inset-0 bg-slate-950/85 flex flex-col justify-between p-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {/* Action Indicators */}
+                            <div className="flex items-center justify-between w-full">
+                              <span className="text-[8px] font-mono text-indigo-300 font-black">
+                                VIEW LENS
+                              </span>
+                              
+                              <div className="flex items-center gap-1.5">
+                                {/* Download Trigger */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDownloadPhoto(photo);
+                                  }}
+                                  className="p-1 rounded bg-slate-900 text-slate-300 hover:text-white border border-white/10 hover:border-white/20 hover:scale-110 active:scale-95 transition-all cursor-pointer"
+                                  title="Download archive image"
+                                >
+                                  <Download className="w-2.5 h-2.5" />
+                                </button>
+
+                                {/* Delete Custom Uploaded Photo */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleRemovePhoto(photo.id, e)}
+                                  className="p-1 rounded bg-slate-900 text-red-400 hover:text-red-300 border border-white/5 hover:border-red-500/10 hover:scale-110 active:scale-95 transition-all cursor-pointer"
+                                  title="Delete snapshot"
+                                >
+                                  <Trash2 className="w-2.5 h-2.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Caption details */}
+                            <div className="text-left w-full space-y-0.5 pointer-events-none select-none">
+                              <h5 className="text-[10px] font-bold text-white uppercase truncate tracking-wide">
+                                {photo.title}
+                              </h5>
+                              <div className="flex items-center justify-between text-[7.5px] text-slate-400 font-mono">
+                                <span>{new Date(photo.createdAt).toLocaleDateString()}</span>
+                                <span className="bg-indigo-950 px-1 py-0.2 rounded text-[7px] text-indigo-300 border border-indigo-500/10">
+                                  ⬇️ {photo.downloads} downloads
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Static bottom title bar (when NOT hovering) */}
+                          <div className="absolute bottom-0 left-0 right-0 bg-slate-950/70 p-1.5 text-left border-t border-white/5 select-none pointer-events-none group-hover:hidden truncate">
+                            <span className="text-[9px] font-bold text-slate-200 drop-shadow-sm uppercase block truncate">
+                              {photo.title}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
           </main>
 
           {/* Footer bar */}
           <footer className="bg-slate-950/80 text-[11px] md:text-xs text-slate-400 border-t border-white/10 select-none">
-            <div className="px-6 py-3.5 font-bold text-slate-350 flex flex-col md:flex-row justify-between items-center gap-3">
-              <div>
-                {language === 'en' ? 'Republic of the Philippines' : 'Republika ng Pilipinas'} • {language === 'en' ? 'Social Protection Network' : 'Network ng Proteksyong Panlipunan'}
-              </div>
+            <div className="px-6 py-3.5 font-bold text-slate-350 flex items-center justify-center gap-3">
+
               <div className="text-indigo-400 font-extrabold text-[12px] tracking-wide uppercase font-sans py-1.5 px-3 bg-indigo-500/10 border border-indigo-500/20 rounded-lg shadow-sm text-center">
                 ALL RIGHT RESERVED BY MICHAEL BANIQUED JUNE 7, 2026
               </div>
@@ -619,7 +1448,7 @@ export default function App() {
                 <button
                   onClick={() => { setIsSearching(false); setQuery(''); }}
                   className="flex items-center text-left hover:opacity-85 transition-opacity cursor-pointer"
-                  title="Return to DSWD Search Homepage"
+                  title="Return to RAMS FAM Portal Homepage"
                   id="header-back-home"
                 >
                   {/* Miniature seal icon */}
@@ -1176,6 +2005,99 @@ export default function App() {
                 Opening Profile: {DSWD_PROGRAMS[luckyIndex].name[language]}
               </p>
 
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 📌 DIGITIZED PHOTO LENS / DETAIL LIGHTBOX */}
+      <AnimatePresence>
+        {lightboxIndex !== null && photos[lightboxIndex] && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-950/95 backdrop-blur-md flex items-center justify-center z-[10002] select-none"
+            onClick={() => setLightboxIndex(null)}
+          >
+            <div 
+              className="relative p-4 md:p-6 max-w-4xl w-full mx-4 flex flex-col items-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Close button */}
+              <button
+                type="button"
+                onClick={() => setLightboxIndex(null)}
+                className="absolute -top-12 sm:top-2 right-2 p-2 bg-slate-900/90 hover:bg-red-950 text-slate-300 rounded-full border border-white/10 hover:text-red-400 transition-colors z-50 cursor-pointer shadow-lg"
+                title="Close Lightbox"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {/* Prev/Next Navigation arrows */}
+              {photos.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLightboxIndex(prev => prev !== null ? (prev - 1 + photos.length) % photos.length : null);
+                    }}
+                    className="absolute left-2 md:left-6 top-1/2 -translate-y-1/2 p-3 bg-slate-900/85 hover:bg-slate-800 text-white rounded-full border border-white/10 transition-all z-10 hover:scale-105 active:scale-95 cursor-pointer shadow-md"
+                    title="Previous Slide"
+                  >
+                    <ChevronLeft className="w-6 h-6" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLightboxIndex(prev => prev !== null ? (prev + 1) % photos.length : null);
+                    }}
+                    className="absolute right-2 md:right-6 top-1/2 -translate-y-1/2 p-3 bg-slate-900/85 hover:bg-slate-800 text-white rounded-full border border-white/10 transition-all z-10 hover:scale-105 active:scale-95 cursor-pointer shadow-md"
+                    title="Next Slide"
+                  >
+                    <ChevronRight className="w-6 h-6" />
+                  </button>
+                </>
+              )}
+
+              {/* Image Frame with responsive bound constraints */}
+              <div className="relative rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-slate-950 max-h-[60vh] sm:max-h-[70vh] flex items-center justify-center">
+                <img
+                  src={photos[lightboxIndex].url}
+                  alt={photos[lightboxIndex].title}
+                  referrerPolicy="no-referrer"
+                  className="max-h-[60vh] sm:max-h-[70vh] w-full object-contain pointer-events-none select-none"
+                />
+              </div>
+
+              {/* Caption metadata card info overlay */}
+              <div className="mt-4 bg-slate-900/90 border border-white/10 px-5 py-3.5 rounded-2xl w-full max-w-2xl text-center shadow-lg">
+                <h3 className="text-sm font-black text-white uppercase tracking-wider font-sans">
+                  {photos[lightboxIndex].title}
+                </h3>
+                {photos[lightboxIndex].description && (
+                  <p className="text-[11px] text-slate-400 mt-1 leading-normal">
+                    {photos[lightboxIndex].description}
+                  </p>
+                )}
+                
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/5 text-[10px] font-mono select-none">
+                  <span className="text-slate-500 font-bold">
+                    🛡️ RAMS SECURE SNAPSHOT
+                  </span>
+                  <span className="text-slate-350 font-semibold text-[9px]">
+                    Pinned: {new Date(photos[lightboxIndex].createdAt).toLocaleString()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadPhoto(photos[lightboxIndex])}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold border border-indigo-500/10 cursor-pointer shadow-sm transition-colors text-[9px] uppercase tracking-wide"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Download photo</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </motion.div>
         )}

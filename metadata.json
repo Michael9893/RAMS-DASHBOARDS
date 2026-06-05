@@ -1,5 +1,5 @@
 {
-  "name": "DSWD Search Portal",
+  "name": "RAMS Fam Portal",
   "description": "An interactive, ultra-high-fidelity Google-styled search portal and program guide for the Philippine Department of Social Welfare and Development (DSWD).",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

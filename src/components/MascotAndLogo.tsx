@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Language } from '../types';
+// @ts-ignore
+import ramsLogo from '../assets/images/rams_logo_1780695275933.png';
 
 interface MascotAndLogoProps {
   lang: Language;
@@ -219,7 +221,6 @@ export default function MascotAndLogo({ lang, onSearchQuery }: MascotAndLogoProp
             <path d="M 122 88 Q 116 81, 110 85" fill="none" stroke="#120e0d" strokeWidth="2.5" strokeLinecap="round" />
 
             {/* Left Eye / Blinking Right Eye */}
-            {/* We'll use a CSS/motion animation to simulate periodic blinking */}
             <g id="eyes">
               {/* Left Eye */}
               <circle cx="85" cy="98" r="4.5" fill="#120e0d" />
@@ -245,7 +246,7 @@ export default function MascotAndLogo({ lang, onSearchQuery }: MascotAndLogoProp
             {/* Cute Nose */}
             <path d="M 98 106 Q 100 110, 102 106" fill="none" stroke="#ab774c" strokeWidth="2" strokeLinecap="round" />
 
-            {/* Broad Smile (Mouth with teeth & tongue) */}
+            {/* Broad Smile */}
             <g id="mouth">
               {/* Back Mouth */}
               <path d="M 84 116 Q 100 134, 116 116 Z" fill="#711b1b" stroke="#000000" strokeWidth="1.5" />
@@ -259,25 +260,23 @@ export default function MascotAndLogo({ lang, onSearchQuery }: MascotAndLogoProp
             <ellipse cx="73" cy="110" rx="4" ry="2.5" fill="#f87171" opacity="0.4" />
             <ellipse cx="127" cy="110" rx="4" ry="2.5" fill="#f87171" opacity="0.4" />
 
-            {/* Body Shirt - White short sleeved polo with Red collar */}
+            {/* Body Shirt */}
             <g id="shirt" transform="translate(0, 1)">
-              {/* Torso Base */}
               <path d="M 70 150 L 55 190 Q 100 195, 145 190 L 130 150 Z" fill="#ffffff" stroke="#000000" strokeWidth="1.5" />
               
-              {/* Red Collar details (Left and Right) */}
+              {/* Red Collar details */}
               <path d="M 82 150 L 68 165 L 86 168 L 94 150 Z" fill="#c2252c" stroke="#000000" strokeWidth="1.5" />
               <path d="M 118 150 L 132 165 L 114 168 L 106 150 Z" fill="#c2252c" stroke="#000000" strokeWidth="1.5" />
 
-              {/* Red Placket lined center */}
+              {/* Red Placket center */}
               <path d="M 97 150 H 103 V 178 H 97 Z" fill="#c2252c" stroke="none" />
               <line x1="100" y1="150" x2="100" y2="178" stroke="#000000" strokeWidth="1.2" />
               <circle cx="100" cy="160" r="1.8" fill="#ffffff" stroke="#000000" strokeWidth="0.8" />
               <circle cx="100" cy="170" r="1.8" fill="#ffffff" stroke="#000000" strokeWidth="0.8" />
 
-              {/* Small DSWD Shield Badge on left chest (Right of viewer, Left of character) */}
+              {/* Small Badge on left chest */}
               <g transform="translate(120, 168) scale(0.12)" id="shirt-badge">
                 <path d="M 0 -20 L 15 -10 L 15 15 C 15 25, 0 35, 0 35 C 0 35, -15 25, -15 15 L -15 -10 Z" fill="#ffffff" stroke="#000000" strokeWidth="4" />
-                {/* Nested blue/red heart */}
                 <circle cx="0" cy="0" r="12" fill="#252f63" />
                 <path d="M 0 -5 C -2 -9, -8 -8, -8 -3 C -8 3, 0 9, 0 9 C 0 9, 8 3, 8 -3 C 8 -8, 2 -9, 0 -5 Z" fill="#c2252c" />
                 <text x="0" y="22" textAnchor="middle" className="font-extrabold text-[12px] fill-[#252f63]">DSWD</text>
