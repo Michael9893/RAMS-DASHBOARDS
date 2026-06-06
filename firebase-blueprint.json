@@ -77,6 +77,47 @@
         }
       },
       "required": ["id", "url", "title", "createdAt", "downloads"]
+    },
+    "RAMSFile": {
+      "title": "Important Document Record",
+      "description": "An important cloud document uploaded to the records and archives management section.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique file identifier."
+        },
+        "name": {
+          "type": "string",
+          "description": "Original file name."
+        },
+        "type": {
+          "type": "string",
+          "description": "MIME type description of the file container."
+        },
+        "size": {
+          "type": "number",
+          "description": "The size of the record payload file in bytes."
+        },
+        "url": {
+          "type": "string",
+          "description": "Base64 encoded Data URL representation of the document."
+        },
+        "title": {
+          "type": "string",
+          "description": "Descriptive display name given by the uploader."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO timestamp indicating when the document was cataloged."
+        },
+        "downloads": {
+          "type": "number",
+          "description": "Count of successful user downloads."
+        }
+      },
+      "required": ["id", "name", "type", "size", "url", "title", "createdAt", "downloads"]
     }
   },
   "firestore": {
@@ -87,6 +128,10 @@
     "/photos/{photoId}": {
       "schema": "Photo",
       "description": "Shared physical snap album records library."
+    },
+    "/rams_files/{fileId}": {
+      "schema": "RAMSFile",
+      "description": "Shared real-time archives and files record repository."
     }
   }
 }

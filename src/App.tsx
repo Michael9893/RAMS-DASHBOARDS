@@ -6,7 +6,7 @@ import {
   BookOpen, ExternalLink, Calendar, CheckSquare, RefreshCw, X, Play, Volume2,
   Plus, Trash2, Globe, Link as LinkIcon, Pin, Lock, Unlock,
   Image as ImageIcon, Download, Upload, ChevronLeft, ChevronRight, Pause, Camera, Clock,
-  Music, Youtube, Smile
+  Music, Youtube, Smile, FileText, File, UploadCloud
 } from 'lucide-react';
 
 import { collection, onSnapshot, setDoc, doc, deleteDoc } from 'firebase/firestore';
@@ -474,6 +474,115 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // =========================================================
+  // 📁 IMPORTANT FILES FOR RECORDS AND ARCHIVES STATE & ENGINE
+  // =========================================================
+  interface RAMSFile {
+    id: string;
+    name: string;
+    type: string;
+    size: number;
+    url: string;
+    title: string;
+    createdAt: string;
+    downloads: number;
+  }
+
+  const [ramsFiles, setRamsFiles] = useState<RAMSFile[]>([]);
+  const [isFileSectionExpanded, setIsFileSectionExpanded] = useState(false); // Collapsed by default as requested to save space
+  const [fileUploadTitle, setFileUploadTitle] = useState('');
+  const [fileUploadError, setFileUploadError] = useState('');
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Real-time Files listener under RAMS Quick Portals
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'rams_files'), (snapshot) => {
+      const list: RAMSFile[] = [];
+      snapshot.forEach((doc) => {
+        list.push(doc.data() as RAMSFile);
+      });
+      // Sort descending by creation date
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setRamsFiles(list);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'rams_files');
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleUploadFile = (file: File) => {
+    if (!file) return;
+
+    if (file.size > 800 * 1024) {
+      setFileUploadError('File size exceeds the 800 KB cloud sync limit. Please compress or optimize the file.');
+      return;
+    }
+
+    setIsUploadingFile(true);
+    setFileUploadError('');
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const fileId = `rams_file_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+        const newFileDoc: RAMSFile = {
+          id: fileId,
+          name: file.name,
+          type: file.type || 'application/octet-stream',
+          size: file.size,
+          url: event.target?.result as string,
+          title: fileUploadTitle.trim() || file.name.substring(0, file.name.lastIndexOf('.')) || 'DSWD-RAMS Archival File',
+          createdAt: new Date().toISOString(),
+          downloads: 0
+        };
+
+        await setDoc(doc(db, 'rams_files', fileId), newFileDoc);
+        setFileUploadTitle('');
+        setIsUploadingFile(false);
+        // Clear input element
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      } catch (err) {
+        setIsUploadingFile(false);
+        handleFirestoreError(err, OperationType.CREATE, `rams_files`);
+      }
+    };
+    reader.onerror = () => {
+      setFileUploadError('Failed to read the file.');
+      setIsUploadingFile(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDownloadFile = async (ramsFile: RAMSFile) => {
+    try {
+      await setDoc(doc(db, 'rams_files', ramsFile.id), {
+        ...ramsFile,
+        downloads: (ramsFile.downloads || 0) + 1
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `rams_files/${ramsFile.id}`);
+    }
+
+    const link = document.createElement('a');
+    link.href = ramsFile.url;
+    link.download = ramsFile.name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleRemoveFile = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await deleteDoc(doc(db, 'rams_files', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `rams_files/${id}`);
+    }
+  };
 
   // Pre-populate with high-fidelity archival records images (Clean slate)
   const defaultAlbumPhotos: RAMSPhoto[] = [];
@@ -1026,6 +1135,188 @@ export default function App() {
                   </motion.div>
                 )}
               </AnimatePresence>
+            </div>
+            {/* 📁 IMPORTANT FILES FOR RECORDS & ARCHIVES MANAGEMENT       */}
+            {/* ========================================================= */}
+            <div className="w-full max-w-xl mx-auto mb-10 text-left animate-in fade-in-50 duration-700">
+              <div className="text-[10px] font-bold text-slate-550 uppercase tracking-widest mb-3.5 select-none text-center">
+                📁 IMPORTANT FILES FOR RECORDS AND ARCHIVES MANAGEMENT
+              </div>
+              
+              <div className="bg-slate-950/40 rounded-2xl border border-indigo-550/10 p-4 backdrop-blur-sm shadow-md transition-all hover:border-indigo-550/20">
+                {/* Collapsible Trigger Header */}
+                <button
+                  type="button"
+                  onClick={() => setIsFileSectionExpanded(!isFileSectionExpanded)}
+                  className="w-full flex items-center justify-between text-left focus:outline-none group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="p-1.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-lg group-hover:bg-indigo-500/20 transition-colors">
+                      <FileText className="w-4 h-4 text-indigo-400 animate-pulse" />
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-xs font-bold text-white uppercase tracking-wider group-hover:text-indigo-400 transition-colors">
+                          RAMS Document Archive Port
+                        </h3>
+                        <span className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full text-[9px] font-black select-none">
+                          {ramsFiles.length} {ramsFiles.length === 1 ? 'FILE' : 'FILES'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-450 leading-tight mt-0.5 select-none">
+                        {isFileSectionExpanded ? 'Real-time shared catalog for templates and guidelines.' : 'Click to expand upload form & files catalog.'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-semibold text-indigo-400/70 group-hover:text-indigo-400 uppercase select-none tracking-wider">
+                      {isFileSectionExpanded ? 'Hide' : 'Show'}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 text-slate-450 group-hover:text-white transition-transform duration-300 ${
+                      isFileSectionExpanded ? 'rotate-180' : ''
+                    }`} />
+                  </div>
+                </button>
+
+                {/* Collapsible Body */}
+                {isFileSectionExpanded && (
+                  <div className="mt-4 pt-4 border-t border-indigo-500/10 animate-in fade-in duration-300">
+                    {/* Upload Section Form */}
+                    <div className="space-y-3 mb-5 p-4 rounded-xl bg-slate-950/60 border border-white/5">
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1 tracking-wider">
+                          Descriptive File Name / Title (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. RAMS Guidelines v2, 2026 Archive Log..."
+                          value={fileUploadTitle}
+                          onChange={(e) => setFileUploadTitle(e.target.value)}
+                          className="w-full bg-slate-900 border border-white/10 rounded-lg py-1.5 px-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/40 transition-colors"
+                        />
+                      </div>
+
+                      {/* Drag and Drop Zone */}
+                      <div
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) handleUploadFile(file);
+                        }}
+                        className="border border-dashed border-slate-700 hover:border-indigo-500/40 hover:bg-indigo-950/10 transition-all rounded-xl p-5 text-center flex flex-col items-center justify-center cursor-pointer group-inner"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleUploadFile(file);
+                          }}
+                          className="hidden"
+                        />
+                        <UploadCloud className="w-6 h-6 text-indigo-400 group-inner-hover:scale-110 transition-transform mb-2" />
+                        <span className="text-[11px] font-bold text-slate-300">
+                          Drag & Drop file here or <span className="text-indigo-400 underline animate-pulse">Browse</span>
+                        </span>
+                        <span className="text-[9px] text-slate-500 mt-1">
+                          Max file size: 800 KB for direct real-time sync syncing
+                        </span>
+                      </div>
+
+                      {/* Error & Upload state info */}
+                      {fileUploadError && (
+                        <p className="text-[10px] text-red-400 font-semibold bg-red-950/20 px-2.5 py-1.5 rounded-lg border border-red-500/10 animate-in fade-in-50 duration-200">
+                          ⚠️ {fileUploadError}
+                        </p>
+                      )}
+
+                      {isUploadingFile && (
+                        <div className="flex items-center gap-1.5 text-indigo-400 text-[10px] font-bold">
+                          <RefreshCw className="w-3 h-3 animate-spin text-indigo-400" />
+                          <span>Compressing and uploading data to RAMS cloud...</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Shared File List */}
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                      {ramsFiles.length === 0 ? (
+                        <div className="text-center py-6 border border-dashed border-white/5 rounded-xl select-none">
+                          <File className="w-6 h-6 text-slate-650 mx-auto mb-1 opacity-45" />
+                          <p className="text-[10px] font-semibold text-slate-500">No official documents cataloged in this portal.</p>
+                          <p className="text-[8px] text-slate-600 mt-0.5">Upload templates to instantly synchronize everyone's terminals.</p>
+                        </div>
+                      ) : (
+                        ramsFiles.map((file) => {
+                          const sizeInKb = (file.size / 1024).toFixed(1);
+                          const isPdf = file.type.includes('pdf') || file.name.endsWith('.pdf');
+                          const isExcel = file.type.includes('excel') || file.type.includes('spreadsheet') || file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv');
+                          
+                          return (
+                            <div
+                              key={file.id}
+                              className="flex items-center justify-between p-2.5 rounded-xl border border-white/5 bg-slate-950/30 hover:bg-slate-950/60 hover:border-indigo-500/10 transition-all text-xs"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0 pr-3">
+                                <span className={`p-2 rounded-lg flex-shrink-0 ${
+                                  isPdf ? 'bg-red-500/10 text-red-400 border border-red-500/10' :
+                                  isExcel ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/10' :
+                                  'bg-indigo-500/10 text-indigo-400 border border-indigo-500/10'
+                                }`}>
+                                  {isPdf ? (
+                                    <FileText className="w-4 h-4 text-red-400" />
+                                  ) : isExcel ? (
+                                    <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                                  ) : (
+                                    <File className="w-4 h-4 text-indigo-400" />
+                                  )}
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="font-extrabold text-slate-200 truncate leading-snug" title={file.title}>
+                                    {file.title}
+                                  </p>
+                                  <div className="flex items-center gap-1 text-[8px] text-slate-500 mt-0.5 truncate uppercase tracking-wider font-semibold">
+                                    <span className="truncate text-[8px] text-slate-450">{file.name}</span>
+                                    <span>•</span>
+                                    <span>{sizeInKb} KB</span>
+                                    <span>•</span>
+                                    <span>{file.downloads} DL</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadFile(file)}
+                                  title="Download document"
+                                  className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all cursor-pointer flex items-center justify-center border border-indigo-500/10"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleRemoveFile(file.id, e)}
+                                  title="Remove document permanently"
+                                  className="p-1.5 rounded-lg bg-red-950/40 text-red-400 hover:bg-red-900/60 hover:text-red-300 transition-all cursor-pointer flex items-center justify-center border border-red-500/10"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* ========================================================= */}
