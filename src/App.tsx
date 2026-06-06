@@ -5,7 +5,8 @@ import {
   MapPin, HelpCircle as HelpIcon, ChevronDown, ListTodo, FileSpreadsheet, 
   BookOpen, ExternalLink, Calendar, CheckSquare, RefreshCw, X, Play, Volume2,
   Plus, Trash2, Globe, Link as LinkIcon, Pin, Lock, Unlock,
-  Image as ImageIcon, Download, Upload, ChevronLeft, ChevronRight, Pause, Camera
+  Image as ImageIcon, Download, Upload, ChevronLeft, ChevronRight, Pause, Camera, Clock,
+  Music, Youtube, Smile
 } from 'lucide-react';
 
 import { collection, onSnapshot, setDoc, doc, deleteDoc } from 'firebase/firestore';
@@ -73,6 +74,16 @@ export default function App() {
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [activeCategory, setActiveCategory] = useState<'all' | 'programs' | 'requirements' | 'eligibility' | 'news'>('all');
+  
+  // Live Clock state
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const clockInterval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(clockInterval);
+  }, []);
   
   // Splash Loading Screen states
   const [isLoading, setIsLoading] = useState(true);
@@ -253,6 +264,9 @@ export default function App() {
     x: number;
     y: number;
     createdAt: string;
+    musicTitle?: string;
+    youtubeUrl?: string;
+    noteEmoji?: string;
   }
 
   const boardRef = useRef<HTMLDivElement>(null);
@@ -261,6 +275,15 @@ export default function App() {
 
   const [noteInput, setNoteInput] = useState('');
   const [noteColor, setNoteColor] = useState('bg-amber-500/10 text-amber-200 border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50');
+  const [noteMusicTitle, setNoteMusicTitle] = useState('');
+  const [noteYoutubeUrl, setNoteYoutubeUrl] = useState('');
+  const [noteEmoji, setNoteEmoji] = useState('');
+  const [showEmojiPanel, setShowEmojiPanel] = useState(false);
+  const [showMusicPanel, setShowMusicPanel] = useState(false);
+
+  // Quick select presets for user memos
+  const presetEmojis = ['📌', '⚠️', '📂', '📝', '💡', '🎵', '🔥', '🚀', '👍', '😎', '😄', '🎉', '🏢', '📋', '🔒', '🕒'];
+  const presetEmotes = ['(•_•)', '(°o°)', '(ಠ_ಠ)', '(≖_≖)', '(͡° ͜ʖ ͡°)', '(★_★)', '(•‿•)', '(^_^)', '¯\\_(ツ)_/¯', '(=^·^=)', '(>_<)', '(T_T)'];
 
   // Modern note theme color presets
   const noteColors = [
@@ -341,19 +364,33 @@ export default function App() {
       createdAt: new Date().toISOString()
     };
 
+    if (noteMusicTitle.trim()) {
+      newNote.musicTitle = noteMusicTitle.trim();
+    }
+    if (noteYoutubeUrl.trim()) {
+      let url = noteYoutubeUrl.trim();
+      // Basic validation or protocol addition
+      if (url && !/^https?:\/\//i.test(url)) {
+        url = `https://${url}`;
+      }
+      newNote.youtubeUrl = url;
+    }
+    if (noteEmoji) {
+      newNote.noteEmoji = noteEmoji;
+    }
+
     try {
       await setDoc(doc(db, 'notes', noteId), newNote);
       setNoteInput('');
+      setNoteMusicTitle('');
+      setNoteYoutubeUrl('');
+      setNoteEmoji('');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `notes/${noteId}`);
     }
   };
 
   const handleRemoveNote = async (id: string) => {
-    const target = notes.find(n => n.id === id);
-    if (target && isCreatedToday(target.createdAt)) {
-      return; // Block deletes for items created on the same day
-    }
     try {
       await deleteDoc(doc(db, 'notes', id));
     } catch (err) {
@@ -816,15 +853,21 @@ export default function App() {
       {!isSearching ? (
         <div className="flex flex-col flex-1">
           {/* Header Bar */}
-          <header className="bg-slate-950/60 backdrop-blur-md border-b border-white/5 py-4 px-6 md:px-8 flex items-center justify-center text-xs font-semibold select-none">
-            <div className="flex items-center space-x-3 justify-center">
-              <Building2 className="w-4 h-4 text-indigo-400" />
-              <span className="text-white font-black tracking-wider text-[11px] md:text-xs uppercase font-sans">
+          <header className="bg-slate-950/60 backdrop-blur-md border-b border-white/5 py-3 px-6 md:px-8 flex flex-col items-center justify-center text-xs font-semibold select-none gap-1">
+            <div className="flex items-center space-x-2.5 justify-center">
+              <Building2 className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="text-white font-black tracking-wider text-[10px] sm:text-[11px] md:text-xs uppercase font-sans">
                 RECORDS AND ARCHIVES MANAGEMENT SECTION
               </span>
             </div>
-
-
+            
+            {/* Live Clock */}
+            <div className="flex items-center space-x-1.5 text-[9px] md:text-[10px] font-mono text-indigo-300 bg-indigo-950/35 px-2.5 py-0.5 rounded-full border border-indigo-500/10">
+              <Clock className="w-2.5 h-2.5 text-amber-400 animate-pulse" />
+              <span>{currentTime.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
+              <span className="text-slate-600 select-none">•</span>
+              <span className="font-bold tabular-nums text-white text-[10px] sm:text-[11px]">{currentTime.toLocaleTimeString()}</span>
+            </div>
           </header>
 
           {/* Core Content */}
@@ -1011,8 +1054,13 @@ export default function App() {
               </div>
 
               {/* Note creator bar */}
-              <form onSubmit={handleAddNote} className="bg-slate-950/50 backdrop-blur-sm border border-white/5 rounded-2xl p-4 mb-5 flex flex-col md:flex-row gap-4 items-center shadow-lg">
-                <div className="flex-1 w-full">
+              <form onSubmit={handleAddNote} className="bg-slate-950/50 backdrop-blur-sm border border-white/5 rounded-2xl p-5 mb-5 flex flex-col gap-4 shadow-lg text-left">
+                {/* Main input Row */}
+                <div className="flex flex-col gap-1.5 font-sans">
+                  <label className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
+                    <Pin className="w-3 h-3 text-indigo-400" />
+                    Confidential Memo Content:
+                  </label>
                   <input
                     type="text"
                     required
@@ -1024,30 +1072,184 @@ export default function App() {
                   />
                 </div>
 
-                <div className="flex items-center justify-between w-full md:w-auto gap-4 flex-shrink-0">
-                  {/* Color selector bubble */}
-                  <div className="flex gap-1.5 items-center bg-slate-900/60 p-1.5 rounded-xl border border-white/5">
-                    {noteColors.map((col) => (
-                      <button
-                        key={col.class}
-                        type="button"
-                        onClick={() => setNoteColor(col.class)}
-                        title={col.name}
-                        className={`w-5.5 h-5.5 rounded-full ${col.dot} border transition-all relative flex items-center justify-center cursor-pointer ${noteColor === col.class ? 'border-white scale-110 shadow-md ring-2 ring-indigo-500/30' : 'border-transparent opacity-80 hover:opacity-100'}`}
-                      >
-                        {noteColor === col.class && (
-                          <div className="w-1.5 h-1.5 bg-slate-950 rounded-full" />
-                        )}
-                      </button>
-                    ))}
+                {/* Options Toggles */}
+                <div className="flex flex-wrap gap-2 items-center bg-slate-900/30 p-2 rounded-xl border border-white/5">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest pl-1 select-none">
+                    Configure:
+                  </span>
+                  
+                  <button
+                    type="button"
+                    onClick={() => setShowEmojiPanel(!showEmojiPanel)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[10px] font-black tracking-wider transition-all cursor-pointer ${showEmojiPanel ? 'bg-indigo-600/25 border-indigo-500/40 text-white shadow-sm ring-1 ring-indigo-500/10' : 'bg-slate-950/40 border-white/5 text-slate-400 hover:text-white hover:bg-slate-900/60'}`}
+                  >
+                    <Smile className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>EMOJIS & STAMP BADGE</span>
+                    {noteEmoji ? (
+                      <span className="bg-indigo-500/30 text-indigo-300 text-[9px] px-1 rounded-md ml-0.5 border border-indigo-400/20">{noteEmoji}</span>
+                    ) : null}
+                    <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${showEmojiPanel ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowMusicPanel(!showMusicPanel)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[10px] font-black tracking-wider transition-all cursor-pointer ${showMusicPanel ? 'bg-indigo-600/25 border-indigo-500/40 text-white shadow-sm ring-1 ring-indigo-500/10' : 'bg-slate-950/40 border-white/5 text-slate-400 hover:text-white hover:bg-slate-900/60'}`}
+                  >
+                    <Music className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>BACKGROUND MUSIC</span>
+                    {(noteMusicTitle || noteYoutubeUrl) ? (
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-ping inline-block ml-0.5" />
+                    ) : null}
+                    <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${showMusicPanel ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+
+                {/* Emojis & Emote Quick Insertions Bar & Memo Badge Selection */}
+                {showEmojiPanel && (
+                  <div className="flex flex-col gap-3 bg-slate-900/40 p-3 rounded-xl border border-white/5 animate-in fade-in slide-in-from-top-1 duration-200">
+                    {/* Append Emojis/Emotes Row */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                        <Smile className="w-3 h-3 text-indigo-300" />
+                        Quick Insert Emojis:
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {presetEmojis.map(emoji => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => setNoteInput(prev => {
+                              if (prev.length + emoji.length <= 130) {
+                                return prev + emoji;
+                              }
+                              return prev;
+                            })}
+                            className="hover:scale-125 transition-transform text-xs p-0.5 cursor-pointer select-none"
+                            title="Click to insert at end of memo text"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 border-t border-white/5 pt-2">
+                      <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                        (^_^) Quick Insert Emotes:
+                      </span>
+                      <div className="flex flex-wrap gap-1 font-mono text-[9px]">
+                        {presetEmotes.map(emote => (
+                          <button
+                            key={emote}
+                            type="button"
+                            onClick={() => setNoteInput(prev => {
+                              if (prev.length + emote.length <= 130) {
+                                return prev + (prev ? ' ' : '') + emote;
+                              }
+                              return prev;
+                            })}
+                            className="hover:bg-slate-800/80 hover:text-white transition-colors duration-150 px-1.5 py-0.5 rounded bg-slate-905 text-indigo-300 border border-white/5 cursor-pointer flex-shrink-0"
+                            title="Click to insert emote into memo text"
+                          >
+                            {emote}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Memo Sticker Badge selection */}
+                    <div className="flex flex-wrap items-center gap-2 border-t border-white/5 pt-2">
+                      <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                        🏷️ Sticky Note Sticker Badge:
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setNoteEmoji('')}
+                          className={`text-[9px] font-bold px-2 py-0.5 rounded-md transition-all cursor-pointer ${!noteEmoji ? 'bg-indigo-600/25 border border-indigo-500/40 text-white' : 'bg-slate-950/40 border border-white/5 text-slate-400 hover:text-slate-200'}`}
+                          title="No emoji badge"
+                        >
+                          None
+                        </button>
+                        {['📌', '💡', '🎵', '🔥', '🚀', '👍', '⚠️', '📂', '🔒', '🕒'].map(emoji => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => setNoteEmoji(emoji)}
+                            className={`hover:scale-115 transition-all text-xs p-1 rounded-md cursor-pointer ${noteEmoji === emoji ? 'bg-indigo-600/35 border border-indigo-500/60 ring-1 ring-indigo-500/20' : 'bg-slate-950/30 border border-white/5 opacity-75 hover:opacity-100'}`}
+                            title={`Select '${emoji}' badge`}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Optional Music Integration Row */}
+                {showMusicPanel && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-900/30 p-3 rounded-xl border border-white/5 animate-in fade-in slide-in-from-top-1 duration-200">
+                    <div className="flex flex-col gap-1 text-left">
+                      <label className="text-[9px] font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1 flex-row">
+                        <Music className="w-2.5 h-2.5 text-indigo-400" />
+                        Optional Music Title:
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={40}
+                        placeholder="e.g. Archives Sync Anthem (Lofi)"
+                        value={noteMusicTitle}
+                        onChange={(e) => setNoteMusicTitle(e.target.value)}
+                        className="w-full bg-slate-950/80 border border-white/5 rounded-lg py-1.5 px-2.5 text-[11px] text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/40 transition-all font-mono"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1 text-left">
+                      <label className="text-[9px] font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1 flex-row">
+                        <Youtube className="w-2.5 h-2.5 text-red-500" />
+                        YouTube Stream URL:
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. youtube.com/watch?v=..."
+                        value={noteYoutubeUrl}
+                        onChange={(e) => setNoteYoutubeUrl(e.target.value)}
+                        className="w-full bg-slate-950/80 border border-white/5 rounded-lg py-1.5 px-2.5 text-[11px] text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/40 transition-all font-mono"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Submit and Color Selection row */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 border-t border-white/5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                      Card Theme Color:
+                    </span>
+                    <div className="flex gap-1.5 items-center bg-slate-900/60 p-1.5 rounded-xl border border-white/5">
+                      {noteColors.map((col) => (
+                        <button
+                          key={col.class}
+                          type="button"
+                          onClick={() => setNoteColor(col.class)}
+                          title={col.name}
+                          className={`w-5.5 h-5.5 rounded-full ${col.dot} border transition-all relative flex items-center justify-center cursor-pointer ${noteColor === col.class ? 'border-white scale-110 shadow-md ring-2 ring-indigo-500/30' : 'border-transparent opacity-80 hover:opacity-100'}`}
+                        >
+                          {noteColor === col.class && (
+                            <div className="w-1.5 h-1.5 bg-slate-950 rounded-full" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   <button
                     type="submit"
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs py-2.5 px-4.5 rounded-xl transition-all shadow-md shadow-indigo-600/10 flex items-center gap-1.5 select-none cursor-pointer"
+                    className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs py-2.5 px-6 rounded-xl transition-all shadow-md shadow-indigo-600/10 flex items-center justify-center gap-1.5 select-none cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5 animate-pulse" />
-                    <span>Pin Note</span>
+                    <span>Pin Note to Board</span>
                   </button>
                 </div>
               </form>
@@ -1080,8 +1282,6 @@ export default function App() {
                 {/* Render Draggable Sticky Notes */}
                 <AnimatePresence>
                   {notes.map((note) => {
-                    const isToday = isCreatedToday(note.createdAt);
-                    
                     return (
                       <motion.div
                         key={note.id}
@@ -1107,23 +1307,47 @@ export default function App() {
                             RAMS MEMO
                           </span>
                           
-                          {isToday ? (
-                            <span className="text-yellow-400 flex items-center gap-0.5" title="Locked: Notes created today cannot be deleted until tomorrow.">
-                              <Lock className="w-2.5 h-2.5" />
-                              TODAY
-                            </span>
-                          ) : (
-                            <span className="text-emerald-400 flex items-center gap-0.5 font-bold" title="Unlocked: Archival note, delete allowed.">
-                              <Unlock className="w-2.5 h-2.5" />
-                              ARCHIVAL
-                            </span>
-                          )}
+                          <span className="text-emerald-400 flex items-center gap-0.5 font-bold" title="Unlocked: Delete allowed anytime, anyday.">
+                            <Unlock className="w-2.5 h-2.5 text-emerald-400" />
+                            ACTIVE
+                          </span>
                         </div>
 
-                        {/* Note text box content */}
-                        <p className="text-[10px] font-medium leading-relaxed break-words text-left select-text max-h-24 overflow-y-auto pr-1">
-                          {note.text}
-                        </p>
+                        {/* Note text box content with optional sticker badge */}
+                        <div className="flex items-start gap-1.5">
+                          {note.noteEmoji && (
+                            <span className="text-base select-none bg-black/25 flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center border border-white/5 shadow-inner" title="Memo Status Sticker">
+                              {note.noteEmoji}
+                            </span>
+                          )}
+                          <p className="text-[10px] font-medium leading-relaxed break-words text-left select-text max-h-24 overflow-y-auto pr-1 flex-1">
+                            {note.text}
+                          </p>
+                        </div>
+
+                        {/* Optional Music Integration Badge */}
+                        {(note.musicTitle || note.youtubeUrl) && (
+                          <div className="mt-2.5 px-2 py-1 rounded bg-black/35 border border-white/5 flex items-center justify-between text-[8px] font-medium font-mono text-indigo-300">
+                            <div className="flex items-center gap-1 overflow-hidden select-none">
+                              <Music className="w-2.5 h-2.5 text-indigo-400 animate-pulse flex-shrink-0" />
+                              <span className="truncate max-w-[110px]" title={note.musicTitle || "Music Stream"}>
+                                {note.musicTitle || "Music Stream"}
+                              </span>
+                            </div>
+                            {note.youtubeUrl && (
+                              <a 
+                                href={note.youtubeUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-[8px] text-red-405 hover:text-red-300 transition-colors flex items-center gap-0.5 font-bold cursor-pointer select-none bg-red-950/45 px-1.5 py-0.5 rounded border border-red-500/10"
+                                title="Play stream on YouTube"
+                              >
+                                <Youtube className="w-2.5 h-2.5 text-red-500" />
+                                PLAY
+                              </a>
+                            )}
+                          </div>
+                        )}
 
                         {/* Note footer and security triggers */}
                         <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/5 text-[8px] font-semibold select-none">
@@ -1131,27 +1355,15 @@ export default function App() {
                             {new Date(note.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} • {new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
 
-                          {isToday ? (
-                            <button
-                              type="button"
-                              disabled
-                              className="text-[8px] text-slate-500 font-extrabold flex items-center gap-0.5 bg-slate-905/40 px-1.5 py-0.5 rounded border border-white/5 cursor-not-allowed opacity-90"
-                              title="Notes cannot be deleted within the same day of creation."
-                            >
-                              <Lock className="w-2 h-2 text-slate-500" />
-                              LOCKED
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveNote(note.id)}
-                              className="text-red-400 hover:text-red-300 hover:bg-red-950/30 px-1.5 py-0.5 rounded border border-red-500/10 cursor-pointer flex items-center gap-0.5 font-bold transition-colors"
-                              title="Delete this older note permanently"
-                            >
-                              <Trash2 className="w-2 h-2" />
-                              DELETE
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveNote(note.id)}
+                            className="text-red-400 hover:text-red-300 hover:bg-red-950/30 px-1.5 py-0.5 rounded border border-red-500/10 cursor-pointer flex items-center gap-0.5 font-bold transition-colors"
+                            title="Delete this note permanently"
+                          >
+                            <Trash2 className="w-2 h-2" />
+                            DELETE
+                          </button>
                         </div>
                       </motion.div>
                     );
@@ -1533,11 +1745,17 @@ export default function App() {
                       />
                     </svg>
                   </div>
-                  <div>
+                  <div className="flex flex-col text-left">
                     <h1 className="font-extrabold text-white font-sans text-[11px] sm:text-xs flex items-center tracking-wider gap-1.5 uppercase">
                       📂 Records and Archives Management Section
                     </h1>
                     <span className="text-[9px] sm:text-[10px] text-slate-450 block font-mono">Department of Social Welfare and Development</span>
+                    <div className="flex items-center space-x-1.5 text-[9px] font-mono text-indigo-300 mt-1">
+                      <Clock className="w-2.5 h-2.5 text-amber-400 animate-pulse" />
+                      <span>{currentTime.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      <span className="text-slate-600 select-none">•</span>
+                      <span className="font-bold tabular-nums text-white">{currentTime.toLocaleTimeString()}</span>
+                    </div>
                   </div>
                 </button>
               </div>

@@ -29,6 +29,18 @@
           "type": "string",
           "format": "date-time",
           "description": "ISO timestamp when the sticky note was drafted."
+        },
+        "musicTitle": {
+          "type": "string",
+          "description": "Optional background music title for this note."
+        },
+        "youtubeUrl": {
+          "type": "string",
+          "description": "Optional YouTube link for the music."
+        },
+        "noteEmoji": {
+          "type": "string",
+          "description": "Optional emoji identifier representing the memo's vibe."
         }
       },
       "required": ["id", "text", "color", "x", "y", "createdAt"]
