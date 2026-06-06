@@ -111,84 +111,47 @@ export default function App() {
     return () => clearInterval(progressTimer);
   }, []);
   
-  // Custom interactive web-link portals
-  const [customPortals, setCustomPortals] = useState<{ id: string; label: string; url: string; emoji: string }[]>(() => {
-    try {
-      const saved = localStorage.getItem('dswd_custom_portals');
-      const loaded = saved ? JSON.parse(saved) : [];
-      
-      // Attempt to recover what the user had set in their local storage for RAMS Guidelines & RAMS Process Tracker
-      const existingGuidelines = Array.isArray(loaded) ? loaded.find((p: any) => p && p.label && p.label.toUpperCase().includes('RAMS GUIDELINES')) : null;
-      const existingTracker = Array.isArray(loaded) ? loaded.find((p: any) => p && p.label && (p.label.toUpperCase().includes('PROCESS TRACKER') || p.label.toUpperCase().includes('RAMS PROCESS'))) : null;
-      
-      // Override with new permanent Vercel link if guidelines is empty or still using the old default placeholder
-      const guidelinesUrl = (existingGuidelines && existingGuidelines.url && existingGuidelines.url !== 'https://fo1.dswd.gov.ph/') 
-        ? existingGuidelines.url 
-        : 'https://record-and-archives-management-sect.vercel.app/';
-      const trackerUrl = (existingTracker && existingTracker.url && existingTracker.url !== 'https://fo1.dswd.gov.ph/')
-        ? existingTracker.url
-        : 'https://rams-process-tracker.vercel.app/';
-
-      // Establish RAMS GUIDELINES and RAMS PROCESS TRACKER as our permanent defaults
-      const defaultPortals = [
-        { id: 'rams-guidelines', label: 'RAMS GUIDELINES', url: guidelinesUrl, emoji: '🌐' },
-        { id: 'rams-tracker', label: 'RAMS PROCESS TRACKER', url: trackerUrl, emoji: '🌐' }
-      ];
-
-      // Retrieve any additional custom user links that are NOT the old default keys or the RAMS keys
-      const otherPortals = Array.isArray(loaded) ? loaded.filter((p: any) => 
-        p && p.label &&
-        !p.label.toUpperCase().includes('RAMS GUIDELINES') && 
-        !p.label.toUpperCase().includes('PROCESS TRACKER') &&
-        !p.label.toUpperCase().includes('RAMS PROCESS') &&
-        p.id !== 'rams-guidelines' && 
-        p.id !== 'rams-tracker' &&
-        p.id !== 'pres-assist' && 
-        p.id !== 'gov-portal'
-      ) : [];
-
-      return [...defaultPortals, ...otherPortals];
-    } catch {
-      return [
-        { id: 'rams-guidelines', label: 'RAMS GUIDELINES', url: 'https://record-and-archives-management-sect.vercel.app/', emoji: '🌐' },
-        { id: 'rams-tracker', label: 'RAMS PROCESS TRACKER', url: 'https://rams-process-tracker.vercel.app/', emoji: '🌐' }
-      ];
-    }
-  });
+  // Custom interactive web-link portals synced in real-time with Firestore DB
+  const [customPortals, setCustomPortals] = useState<{ id: string; label: string; url: string; emoji: string; createdAt: string }[]>([]);
 
   const [isAddingPortal, setIsAddingPortal] = useState(false);
   const [newPortalLabel, setNewPortalLabel] = useState('');
   const [newPortalUrl, setNewPortalUrl] = useState('');
   const [newPortalEmoji, setNewPortalEmoji] = useState('🌐');
 
-  // Sync custom portals to local cache and self-heal any stale placeholder links in existing caches
+  // Real-time portals listener
   useEffect(() => {
-    let changed = false;
-    const cleaned = customPortals.map(p => {
-      let url = p.url;
-      if (p.id === 'rams-guidelines' && p.url === 'https://fo1.dswd.gov.ph/') {
-        changed = true;
-        url = 'https://record-and-archives-management-sect.vercel.app/';
+    const unsubscribe = onSnapshot(collection(db, 'portals'), (snapshot) => {
+      const list: any[] = [];
+      snapshot.forEach((doc) => {
+        list.push(doc.data());
+      });
+      // Sort portals by creation date ascending
+      list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+      // Merge base default portals if they aren't on firestore yet
+      const guidelinesUrl = 'https://record-and-archives-management-sect.vercel.app/';
+      const trackerUrl = 'https://rams-process-tracker.vercel.app/';
+      const defaultGuidelines = { id: 'rams-guidelines', label: 'RAMS GUIDELINES', url: guidelinesUrl, emoji: '🌐', createdAt: new Date(0).toISOString() };
+      const defaultTracker = { id: 'rams-tracker', label: 'RAMS PROCESS TRACKER', url: trackerUrl, emoji: '🌐', createdAt: new Date(1).toISOString() };
+
+      const merged = [...list];
+      if (!merged.some(p => p.id === 'rams-guidelines')) {
+        merged.unshift(defaultGuidelines);
       }
-      if (p.id === 'rams-tracker' && p.url === 'https://fo1.dswd.gov.ph/') {
-        changed = true;
-        url = 'https://rams-process-tracker.vercel.app/';
+      if (!merged.some(p => p.id === 'rams-tracker')) {
+        const glIdx = merged.findIndex(p => p.id === 'rams-guidelines');
+        merged.splice(glIdx + 1, 0, defaultTracker);
       }
-      if (changed) {
-        return { ...p, url };
-      }
-      return p;
+
+      setCustomPortals(merged);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.GET, 'portals');
     });
+    return () => unsubscribe();
+  }, []);
 
-    if (changed) {
-      setCustomPortals(cleaned);
-      localStorage.setItem('dswd_custom_portals', JSON.stringify(cleaned));
-    } else {
-      localStorage.setItem('dswd_custom_portals', JSON.stringify(customPortals));
-    }
-  }, [customPortals]);
-
-  const handleAddPortal = (e: React.FormEvent) => {
+  const handleAddPortal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPortalLabel.trim() || !newPortalUrl.trim()) return;
 
@@ -201,33 +164,40 @@ export default function App() {
     const isGuidelines = normalizedLabel.includes('RAMS GUIDELINES');
     const isTracker = normalizedLabel.includes('PROCESS TRACKER') || normalizedLabel.includes('RAMS PROCESS');
 
+    let targetId = `portal-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    let cleanLabel = newPortalLabel.trim();
     if (isGuidelines || isTracker) {
-      const targetId = isGuidelines ? 'rams-guidelines' : 'rams-tracker';
-      const cleanLabel = isGuidelines ? 'RAMS GUIDELINES' : 'RAMS PROCESS TRACKER';
-      setCustomPortals(prev => {
-        const filtered = prev.filter(p => p.id !== targetId);
-        return [{ id: targetId, label: cleanLabel, url: targetUrl, emoji: newPortalEmoji }, ...filtered];
-      });
-    } else {
-      const newPortal = {
-        id: Date.now().toString(),
-        label: newPortalLabel.trim(),
-        url: targetUrl,
-        emoji: newPortalEmoji
-      };
-      setCustomPortals([...customPortals, newPortal]);
+      targetId = isGuidelines ? 'rams-guidelines' : 'rams-tracker';
+      cleanLabel = isGuidelines ? 'RAMS GUIDELINES' : 'RAMS PROCESS TRACKER';
     }
 
-    setNewPortalLabel('');
-    setNewPortalUrl('');
-    setNewPortalEmoji('🌐');
-    setIsAddingPortal(false);
+    const newPortal = {
+      id: targetId,
+      label: cleanLabel,
+      url: targetUrl,
+      emoji: newPortalEmoji,
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      await setDoc(doc(db, 'portals', targetId), newPortal);
+      setNewPortalLabel('');
+      setNewPortalUrl('');
+      setNewPortalEmoji('🌐');
+      setIsAddingPortal(false);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `portals/${targetId}`);
+    }
   };
 
-  const handleRemovePortal = (id: string, e: React.MouseEvent) => {
+  const handleRemovePortal = async (id: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setCustomPortals(customPortals.filter(p => p.id !== id));
+    try {
+      await deleteDoc(doc(db, 'portals', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `portals/${id}`);
+    }
   };
 
   // =========================================================

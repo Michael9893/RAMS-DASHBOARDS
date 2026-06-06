@@ -65,6 +65,35 @@
         }
       },
       "required": ["id", "url", "title", "createdAt", "downloads"]
+    },
+    "Portal": {
+      "title": "Custom Quick Portal Link",
+      "description": "Custom Quick Portal Web Link shared across clients in real-time.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique portal identifier."
+        },
+        "label": {
+          "type": "string",
+          "description": "The textual display label for the portal button."
+        },
+        "url": {
+          "type": "string",
+          "description": "The target hyperlink URL."
+        },
+        "emoji": {
+          "type": "string",
+          "description": "The display emoji representation."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO timestamp when the portal was created."
+        }
+      },
+      "required": ["id", "label", "url", "emoji", "createdAt"]
     }
   },
   "firestore": {
@@ -75,6 +104,10 @@
     "/photos/{photoId}": {
       "schema": "Photo",
       "description": "Shared physical snap album records library."
+    },
+    "/portals/{portalId}": {
+      "schema": "Portal",
+      "description": "Shared real-time custom portal links collection."
     }
   }
 }
