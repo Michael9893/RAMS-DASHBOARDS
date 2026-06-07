@@ -128,10 +128,11 @@ export default function App() {
       const saved = localStorage.getItem('dswd_custom_portals');
       const loaded = saved ? JSON.parse(saved) : [];
       
-      // Attempt to recover what the user had set in their local storage for RAMS Guidelines, RAMS Process Tracker & RAMSYNC
+      // Attempt to recover what the user had set in their local storage for RAMS Guidelines, RAMS Process Tracker, RAMSYNC, and RAMSWORKDAY
       const existingGuidelines = Array.isArray(loaded) ? loaded.find((p: any) => p && p.label && p.label.toUpperCase().includes('RAMS GUIDELINES')) : null;
       const existingTracker = Array.isArray(loaded) ? loaded.find((p: any) => p && p.label && (p.label.toUpperCase().includes('PROCESS TRACKER') || p.label.toUpperCase().includes('RAMS PROCESS'))) : null;
       const existingRamsync = Array.isArray(loaded) ? loaded.find((p: any) => p && p.label && p.label.toUpperCase().includes('RAMSYNC')) : null;
+      const existingRamsworkday = Array.isArray(loaded) ? loaded.find((p: any) => p && p.label && p.label.toUpperCase().includes('RAMSWORKDAY')) : null;
       
       // Override with new permanent Vercel link if guidelines is empty or still using the old default placeholder
       const guidelinesUrl = (existingGuidelines && existingGuidelines.url && existingGuidelines.url !== 'https://fo1.dswd.gov.ph/') 
@@ -143,12 +144,16 @@ export default function App() {
       const ramsyncUrl = (existingRamsync && existingRamsync.url)
         ? existingRamsync.url
         : 'https://ramsync.vercel.app/';
+      const ramsworkdayUrl = (existingRamsworkday && existingRamsworkday.url)
+        ? existingRamsworkday.url
+        : 'https://ramsworkday.vercel.app/';
 
-      // Establish RAMS GUIDELINES, RAMS PROCESS TRACKER, and RAMSYNC as our permanent defaults
+      // Establish RAMS GUIDELINES, RAMS PROCESS TRACKER, RAMSYNC, and RAMSWORKDAY as our permanent defaults
       const defaultPortals = [
         { id: 'rams-guidelines', label: 'RAMS GUIDELINES', url: guidelinesUrl, emoji: '🌐' },
         { id: 'rams-tracker', label: 'RAMS PROCESS TRACKER', url: trackerUrl, emoji: '🌐' },
-        { id: 'ramsync', label: 'RAMSYNC', url: ramsyncUrl, emoji: '🌐' }
+        { id: 'ramsync', label: 'RAMSYNC', url: ramsyncUrl, emoji: '🌐' },
+        { id: 'ramsworkday', label: 'RAMSWORKDAY', url: ramsworkdayUrl, emoji: '🌐' }
       ];
 
       // Retrieve any additional custom user links that are NOT the old default keys or the RAMS keys
@@ -158,9 +163,11 @@ export default function App() {
         !p.label.toUpperCase().includes('PROCESS TRACKER') &&
         !p.label.toUpperCase().includes('RAMS PROCESS') &&
         !p.label.toUpperCase().includes('RAMSYNC') &&
+        !p.label.toUpperCase().includes('RAMSWORKDAY') &&
         p.id !== 'rams-guidelines' && 
         p.id !== 'rams-tracker' &&
         p.id !== 'ramsync' &&
+        p.id !== 'ramsworkday' &&
         p.id !== 'pres-assist' && 
         p.id !== 'gov-portal'
       ) : [];
@@ -170,7 +177,8 @@ export default function App() {
       return [
         { id: 'rams-guidelines', label: 'RAMS GUIDELINES', url: 'https://record-and-archives-management-sect.vercel.app/', emoji: '🌐' },
         { id: 'rams-tracker', label: 'RAMS PROCESS TRACKER', url: 'https://rams-process-tracker.vercel.app/', emoji: '🌐' },
-        { id: 'ramsync', label: 'RAMSYNC', url: 'https://ramsync.vercel.app/', emoji: '🌐' }
+        { id: 'ramsync', label: 'RAMSYNC', url: 'https://ramsync.vercel.app/', emoji: '🌐' },
+        { id: 'ramsworkday', label: 'RAMSWORKDAY', url: 'https://ramsworkday.vercel.app/', emoji: '🌐' }
       ];
     }
   });
@@ -196,6 +204,10 @@ export default function App() {
       if (p.id === 'ramsync' && !p.url) {
         changed = true;
         url = 'https://ramsync.vercel.app/';
+      }
+      if (p.id === 'ramsworkday' && !p.url) {
+        changed = true;
+        url = 'https://ramsworkday.vercel.app/';
       }
       if (changed) {
         return { ...p, url };
@@ -1018,7 +1030,7 @@ export default function App() {
                       <ExternalLink className="w-3 h-3 text-indigo-400 absolute right-3 top-4 opacity-50 group-hover:opacity-100 transition-opacity" />
                     </a>
                     {/* Delete action button (hidden for permanent RAMS portals) */}
-                    {portal.id !== 'rams-guidelines' && portal.id !== 'rams-tracker' && portal.id !== 'ramsync' && (
+                    {portal.id !== 'rams-guidelines' && portal.id !== 'rams-tracker' && portal.id !== 'ramsync' && portal.id !== 'ramsworkday' && (
                       <button
                         onClick={(e) => handleRemovePortal(portal.id, e)}
                         title="Remove this portal link"
