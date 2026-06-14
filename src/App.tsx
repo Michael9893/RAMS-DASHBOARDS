@@ -6,7 +6,7 @@ import {
   BookOpen, ExternalLink, Calendar, CheckSquare, RefreshCw, X, Play, Volume2,
   Plus, Trash2, Globe, Link as LinkIcon, Pin, Lock, Unlock,
   Image as ImageIcon, Download, Upload, ChevronLeft, ChevronRight, Pause, Camera, Clock,
-  Music, Youtube, Smile, FileText, File, UploadCloud
+  Music, Youtube, Smile, FileText, File, UploadCloud, MessageSquare, Send
 } from 'lucide-react';
 
 import { collection, onSnapshot, setDoc, doc, deleteDoc } from 'firebase/firestore';
@@ -469,6 +469,14 @@ export default function App() {
     createdAt: string;
     downloads: number;
     description?: string;
+    type?: 'image' | 'video';
+    reactions?: { [emoji: string]: number };
+    comments?: {
+      id: string;
+      author: string;
+      text: string;
+      createdAt: string;
+    }[];
   }
 
   // Real-time Photos listener inside App.tsx
@@ -604,6 +612,53 @@ export default function App() {
   const [photoUploadTitle, setPhotoUploadTitle] = useState('');
   const [photoUploadError, setPhotoUploadError] = useState('');
   const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
+  const [commentAuthor, setCommentAuthor] = useState('RAMS Officer');
+  const [commentText, setCommentText] = useState('');
+
+  // Reactions persistent handler
+  const handleAddReaction = async (photoId: string, emoji: string) => {
+    try {
+      const photo = photos.find(p => p.id === photoId);
+      if (!photo) return;
+      
+      const currentReactions = photo.reactions || {};
+      const updatedReactions = {
+        ...currentReactions,
+        [emoji]: (currentReactions[emoji] || 0) + 1
+      };
+      
+      await setDoc(doc(db, 'photos', photoId), {
+        ...photo,
+        reactions: updatedReactions
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `photos/${photoId}`);
+    }
+  };
+
+  // Comments persistent handler
+  const handleAddComment = async (photoId: string, author: string, text: string) => {
+    if (!text.trim()) return;
+    try {
+      const photo = photos.find(p => p.id === photoId);
+      if (!photo) return;
+      
+      const currentComments = photo.comments || [];
+      const newComment = {
+        id: `comment-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        author: author.trim() || 'RAMS Officer',
+        text: text.trim(),
+        createdAt: new Date().toISOString()
+      };
+      
+      await setDoc(doc(db, 'photos', photoId), {
+        ...photo,
+        comments: [...currentComments, newComment]
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `photos/${photoId}`);
+    }
+  };
 
   // Slideshow State
   const [activeSlideIdx, setActiveSlideIdx] = useState(0);
@@ -637,18 +692,61 @@ export default function App() {
   const safeSlideIdx = activeSlideIdx < slideshowPhotos.length ? activeSlideIdx : 0;
   const currentSlide = slideshowPhotos.length > 0 ? (slideshowPhotos[safeSlideIdx] || slideshowPhotos[0]) : null;
 
-  // Compress and store image upload safely on the shared server
+  // Compress and store image/video uploads safely on the shared server
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      setPhotoUploadError('Please select a valid image file (.jpg, .png, .webp).');
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+
+    if (!isImage && !isVideo) {
+      setPhotoUploadError('Please select a valid image file (.jpg, .png, .webp) or video file (.mp4, .webm).');
       return;
     }
 
     setPhotoUploadError('');
     setIsCompressingPhoto(true);
+
+    if (isVideo) {
+      if (file.size > 800 * 1024) {
+        setPhotoUploadError('Video file exceeds the 800 KB cloud sync limit. Please upload a shorter or more compressed video loop.');
+        setIsCompressingPhoto(false);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const photoId = `rams-v-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          const newPhoto: RAMSPhoto = {
+            id: photoId,
+            url: event.target?.result as string,
+            title: photoUploadTitle.trim() || file.name.substring(0, file.name.lastIndexOf('.')) || 'Uploaded RAMS Video',
+            createdAt: new Date().toISOString(),
+            downloads: 0,
+            description: `Uploaded video on ${new Date().toLocaleDateString()}`,
+            type: 'video',
+            reactions: {},
+            comments: []
+          };
+
+          await setDoc(doc(db, 'photos', photoId), newPhoto);
+          setPhotoUploadTitle('');
+          setIsCompressingPhoto(false);
+          setActiveSlideIdx(0); // Reset slideshow to newly added item
+        } catch (err) {
+          setIsCompressingPhoto(false);
+          handleFirestoreError(err, OperationType.CREATE, `photos`);
+        }
+      };
+      reader.onerror = () => {
+        setPhotoUploadError('Failed to read video file.');
+        setIsCompressingPhoto(false);
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -690,7 +788,10 @@ export default function App() {
             title: photoUploadTitle.trim() || file.name.substring(0, file.name.lastIndexOf('.')) || 'Uploaded RAMS Archive',
             createdAt: new Date().toISOString(),
             downloads: 0,
-            description: `Uploaded on ${new Date().toLocaleDateString()}`
+            description: `Uploaded on ${new Date().toLocaleDateString()}`,
+            type: 'image',
+            reactions: {},
+            comments: []
           };
 
           // Save to Firestore cloud database
@@ -730,12 +831,15 @@ export default function App() {
       handleFirestoreError(err, OperationType.UPDATE, `photos/${photo.id}`);
     }
 
+    const isVideo = photo.type === 'video' || photo.url.startsWith('data:video/');
+    const ext = isVideo ? 'mp4' : 'jpg';
+
     // For base64 directly trigger browser download
     if (photo.url.startsWith('data:')) {
       const link = document.createElement('a');
       link.href = photo.url;
       const cleanTitle = photo.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      link.download = `rams_archive_${cleanTitle}.jpg`;
+      link.download = `rams_archive_${cleanTitle}.${ext}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -748,7 +852,7 @@ export default function App() {
           const link = document.createElement('a');
           link.href = blobUrl;
           const cleanTitle = photo.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-          link.download = `rams_archive_${cleanTitle}.jpg`;
+          link.download = `rams_archive_${cleanTitle}.${ext}`;
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
@@ -1703,14 +1807,25 @@ export default function App() {
               {/* 1. DYNAMIC SLIDESHOW - 10 RECENT PICTURES OF THE DAY */}
               {slideshowPhotos.length > 0 && currentSlide ? (
                 <div className="relative w-full h-[260px] sm:h-[300px] bg-slate-950 rounded-2xl border border-white/5 overflow-hidden shadow-2xl mb-6 group">
-                  {/* Backdrop Slide Image */}
+                  {/* Backdrop Slide Image or Video */}
                   <div className="absolute inset-0 w-full h-full transition-all duration-700 ease-in-out">
-                    <img
-                      src={currentSlide.url}
-                      alt={currentSlide.title}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover opacity-60 backdrop-brightness-50"
-                    />
+                    {currentSlide.type === 'video' || currentSlide.url.startsWith('data:video/') ? (
+                      <video
+                        src={currentSlide.url}
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        className="w-full h-full object-cover opacity-60 backdrop-brightness-50"
+                      />
+                    ) : (
+                      <img
+                        src={currentSlide.url}
+                        alt={currentSlide.title}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover opacity-60 backdrop-brightness-50"
+                      />
+                    )}
                     {/* Shadow layer gradient for extreme text contrast */}
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-slate-950/40 pointer-events-none" />
                   </div>
@@ -1841,15 +1956,15 @@ export default function App() {
                 <div className="w-full h-44 bg-slate-950/50 border border-white/5 rounded-2xl flex flex-col items-center justify-center text-center p-4 shadow-inner mb-6">
                   <ImageIcon className="w-8 h-8 text-slate-600 mb-2" />
                   <span className="text-xs text-slate-400 font-bold">No slideshow photos available</span>
-                  <span className="text-[10px] text-slate-500 mt-0.5">Upload records below to build the slideshow gallery.</span>
+                  <span className="text-[10px] text-slate-550 mt-0.5">Upload records below to build the slideshow gallery.</span>
                 </div>
               )}
 
-              {/* 2. PHOTO DIGITIZE / UPLOAD FORM */}
+              {/* 2. PHOTO/VIDEO DIGITIZE & UPLOAD FORM */}
               <div className="bg-slate-950/50 backdrop-blur-sm border border-white/5 rounded-2xl p-4 sm:p-5 mb-6 flex flex-col sm:flex-row gap-4 items-end shadow-xl">
                 <div className="flex-1 w-full space-y-2">
                   <label className="block text-[10px] font-black text-slate-450 uppercase tracking-widest select-none">
-                    Snapshot Label / Description
+                    Media Label / Description
                   </label>
                   <input
                     type="text"
@@ -1857,7 +1972,7 @@ export default function App() {
                     placeholder="Enter records folder name, date, tag... (Optional)"
                     value={photoUploadTitle}
                     onChange={(e) => setPhotoUploadTitle(e.target.value)}
-                    className="w-full bg-slate-900 border border-white/10 rounded-xl py-2 px-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 transition-all font-medium"
+                    className="w-full bg-slate-900 border border-white/10 rounded-xl py-2 px-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-505/50 transition-all font-medium"
                   />
                 </div>
 
@@ -1872,7 +1987,7 @@ export default function App() {
                   <input
                     type="file"
                     id="rams-album-picker"
-                    accept="image/*"
+                    accept="image/*,video/*"
                     onChange={handlePhotoUpload}
                     className="hidden"
                     disabled={isCompressingPhoto}
@@ -1885,12 +2000,12 @@ export default function App() {
                     {isCompressingPhoto ? (
                       <>
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>Compressing...</span>
+                        <span>Processing Asset...</span>
                       </>
                     ) : (
                       <>
                         <Upload className="w-3.5 h-3.5" />
-                        <span>Upload Photo To Album</span>
+                        <span>Upload Photo/Video Record</span>
                       </>
                     )}
                   </label>
@@ -1907,24 +2022,42 @@ export default function App() {
                   <div className="flex flex-col items-center justify-center text-center py-10">
                     <ImageIcon className="w-8 h-8 text-slate-700 mb-2 rotate-12" />
                     <h4 className="text-xs font-bold text-slate-400 uppercase tracking-tight">Gallery Empty</h4>
-                    <p className="text-[9px] text-slate-550 mt-1 max-w-xs">Upload pictures of directories or archives above to start permanently filing records.</p>
+                    <p className="text-[9px] text-slate-550 mt-1 max-w-xs">Upload pictures or short videos under 800 KB above to start permanently filing records.</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {photos.map((photo, index) => {
+                      const isVideo = photo.type === 'video' || photo.url.startsWith('data:video/') || photo.url.endsWith('.mp4');
                       return (
                         <div
                           key={photo.id}
                           onClick={() => setLightboxIndex(index)}
                           className="relative aspect-video rounded-xl overflow-hidden border border-white/5 bg-slate-900 group cursor-pointer shadow-md hover:border-indigo-505/30 hover:shadow-indigo-505/5 hover:scale-[1.02] transition-all"
                         >
-                          {/* Image source */}
-                          <img
-                            src={photo.url}
-                            alt={photo.title}
-                            referrerPolicy="no-referrer"
-                            className="w-full h-full object-cover select-none"
-                          />
+                          {/* Render either image or video teaser */}
+                          {isVideo ? (
+                            <div className="relative w-full h-full bg-slate-950 flex items-center justify-center">
+                              <video
+                                src={photo.url}
+                                muted
+                                playsInline
+                                className="w-full h-full object-cover select-none brightness-75"
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                                <span className="p-1 px-1.5 bg-slate-950/80 rounded-lg text-[8px] font-bold text-white flex items-center gap-1 border border-white/10 uppercase tracking-wider">
+                                  <Play className="w-2.5 h-2.5 fill-current text-white" />
+                                  Video Loop
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            <img
+                              src={photo.url}
+                              alt={photo.title}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover select-none"
+                            />
+                          )}
 
                           {/* Hover action banner overlay */}
                           <div className="absolute inset-0 bg-slate-950/85 flex flex-col justify-between p-2.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -2593,20 +2726,20 @@ export default function App() {
             onClick={() => setLightboxIndex(null)}
           >
             <div 
-              className="relative p-4 md:p-6 max-w-4xl w-full mx-4 flex flex-col items-center"
+              className="relative p-5 md:p-6 max-w-5xl w-full mx-4 bg-slate-900 border border-white/10 rounded-3xl shadow-2xl flex flex-col md:flex-row gap-6 items-stretch overflow-hidden max-h-[95vh] md:max-h-[85vh]"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Close button */}
+              {/* Close button inside modal */}
               <button
                 type="button"
                 onClick={() => setLightboxIndex(null)}
-                className="absolute -top-12 sm:top-2 right-2 p-2 bg-slate-900/90 hover:bg-red-950 text-slate-300 rounded-full border border-white/10 hover:text-red-400 transition-colors z-50 cursor-pointer shadow-lg"
-                title="Close Lightbox"
+                className="absolute top-4 right-4 p-2 bg-slate-800/80 hover:bg-red-950 text-slate-300 hover:text-red-400 rounded-full border border-white/5 transition-colors z-50 cursor-pointer shadow-lg"
+                title="Close"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
 
-              {/* Prev/Next Navigation arrows */}
+              {/* Prev/Next Navigation arrows (Floating absolute around modal container edge) */}
               {photos.length > 1 && (
                 <>
                   <button
@@ -2614,61 +2747,186 @@ export default function App() {
                     onClick={() => {
                       setLightboxIndex(prev => prev !== null ? (prev - 1 + photos.length) % photos.length : null);
                     }}
-                    className="absolute left-2 md:left-6 top-1/2 -translate-y-1/2 p-3 bg-slate-900/85 hover:bg-slate-800 text-white rounded-full border border-white/10 transition-all z-10 hover:scale-105 active:scale-95 cursor-pointer shadow-md"
+                    className="absolute -left-3 sm:-left-6 top-1/2 -translate-y-1/2 p-2.5 sm:p-3 bg-slate-900/90 hover:bg-indigo-600 text-white rounded-full border border-white/10 transition-all z-20 hover:scale-105 active:scale-95 cursor-pointer shadow-xl"
                     title="Previous Slide"
                   >
-                    <ChevronLeft className="w-6 h-6" />
+                    <ChevronLeft className="w-5 h-5" />
                   </button>
                   <button
                     type="button"
                     onClick={() => {
                       setLightboxIndex(prev => prev !== null ? (prev + 1) % photos.length : null);
                     }}
-                    className="absolute right-2 md:right-6 top-1/2 -translate-y-1/2 p-3 bg-slate-900/85 hover:bg-slate-800 text-white rounded-full border border-white/10 transition-all z-10 hover:scale-105 active:scale-95 cursor-pointer shadow-md"
+                    className="absolute -right-3 sm:-right-6 top-1/2 -translate-y-1/2 p-2.5 sm:p-3 bg-slate-900/90 hover:bg-indigo-600 text-white rounded-full border border-white/10 transition-all z-20 hover:scale-105 active:scale-95 cursor-pointer shadow-xl"
                     title="Next Slide"
                   >
-                    <ChevronRight className="w-6 h-6" />
+                    <ChevronRight className="w-5 h-5" />
                   </button>
                 </>
               )}
 
-              {/* Image Frame with responsive bound constraints */}
-              <div className="relative rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-slate-950 max-h-[60vh] sm:max-h-[70vh] flex items-center justify-center">
-                <img
-                  src={photos[lightboxIndex].url}
-                  alt={photos[lightboxIndex].title}
-                  referrerPolicy="no-referrer"
-                  className="max-h-[60vh] sm:max-h-[70vh] w-full object-contain pointer-events-none select-none"
-                />
-              </div>
-
-              {/* Caption metadata card info overlay */}
-              <div className="mt-4 bg-slate-900/90 border border-white/10 px-5 py-3.5 rounded-2xl w-full max-w-2xl text-center shadow-lg">
-                <h3 className="text-sm font-black text-white uppercase tracking-wider font-sans">
-                  {photos[lightboxIndex].title}
-                </h3>
-                {photos[lightboxIndex].description && (
-                  <p className="text-[11px] text-slate-400 mt-1 leading-normal">
-                    {photos[lightboxIndex].description}
-                  </p>
-                )}
-                
-                <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/5 text-[10px] font-mono select-none">
-                  <span className="text-slate-500 font-bold">
-                    🛡️ RAMS SECURE SNAPSHOT
+              {/* LEFT COLUMN: Media Viewport */}
+              <div className="flex-1 md:w-3/5 flex flex-col justify-between space-y-3 min-w-0">
+                <div className="space-y-1">
+                  <span className="text-[9px] font-mono font-extrabold text-indigo-400 uppercase tracking-widest bg-indigo-950/40 px-2 py-0.5 rounded-md border border-indigo-500/10 inline-block">
+                    {photos[lightboxIndex].type === 'video' || photos[lightboxIndex].url.startsWith('data:video/') ? '📹 RAMS Video Asset' : '📷 RAMS Photo Asset'}
                   </span>
-                  <span className="text-slate-350 font-semibold text-[9px]">
-                    Pinned: {new Date(photos[lightboxIndex].createdAt).toLocaleString()}
+                  
+                  <h3 className="text-sm sm:text-base font-black text-white uppercase tracking-wider truncate">
+                    {photos[lightboxIndex].title}
+                  </h3>
+                  
+                  {photos[lightboxIndex].description && (
+                    <p className="text-[11px] text-slate-450 leading-relaxed font-sans line-clamp-2">
+                      {photos[lightboxIndex].description}
+                    </p>
+                  )}
+                </div>
+
+                {/* Media frame */}
+                <div className="relative rounded-2xl overflow-hidden border border-white/5 bg-slate-950 flex-1 flex items-center justify-center p-1.5 min-h-[220px] md:max-h-[50vh]">
+                  {photos[lightboxIndex].type === 'video' || photos[lightboxIndex].url.startsWith('data:video/') ? (
+                    <video
+                      src={photos[lightboxIndex].url}
+                      controls
+                      autoPlay
+                      loop
+                      playsInline
+                      className="max-h-[220px] md:max-h-[48vh] w-full object-contain rounded-xl select-none"
+                    />
+                  ) : (
+                    <img
+                      src={photos[lightboxIndex].url}
+                      alt={photos[lightboxIndex].title}
+                      referrerPolicy="no-referrer"
+                      className="max-h-[220px] md:max-h-[48vh] w-full object-contain pointer-events-none select-none rounded-xl"
+                    />
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] font-mono border-t border-white/5 pt-2 select-none">
+                  <span className="text-slate-500 font-bold">
+                    🛡️ SECURED ARCHIVES
+                  </span>
+                  <span className="text-slate-400 text-[9px]">
+                    Pinned: {new Date(photos[lightboxIndex].createdAt).toLocaleDateString()} {new Date(photos[lightboxIndex].createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                   <button
                     type="button"
                     onClick={() => handleDownloadPhoto(photos[lightboxIndex])}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold border border-indigo-500/10 cursor-pointer shadow-sm transition-colors text-[9px] uppercase tracking-wide"
+                    className="flex items-center gap-1.5 px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold border border-indigo-500/10 cursor-pointer shadow-sm transition-colors text-[9px] uppercase tracking-wide"
                   >
                     <Download className="w-3 h-3" />
-                    <span>Download photo</span>
+                    <span>Download</span>
                   </button>
                 </div>
+              </div>
+
+              {/* RIGHT COLUMN: Interactivity Hub (Comments & Reactions) */}
+              <div className="w-full md:w-2/5 border-t md:border-t-0 md:border-l border-white/10 pt-4 md:pt-0 md:pl-5 flex flex-col justify-between space-y-4 min-w-0">
+                
+                {/* 1. Emoji reactions segment */}
+                <div className="space-y-1.5 select-none">
+                  <span className="text-[9px] font-black text-slate-450 uppercase tracking-widest block">
+                    React to Record
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {['❤️', '👍', '🔥', '😮', '🎉'].map((emoji) => {
+                      const count = photos[lightboxIndex].reactions?.[emoji] || 0;
+                      return (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => handleAddReaction(photos[lightboxIndex].id, emoji)}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/60 hover:bg-indigo-950/40 border border-white/5 hover:border-indigo-505/20 text-slate-300 rounded-xl transition-all hover:scale-105 active:scale-95 cursor-pointer text-xs"
+                        >
+                          <span>{emoji}</span>
+                          <span className="font-mono font-bold text-[10px] text-slate-400">{count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 2. Scrollable Comments Stream */}
+                <div className="flex-1 flex flex-col min-h-0 space-y-2">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-1 select-none">
+                    <span className="text-[9px] font-black text-slate-450 uppercase tracking-widest">
+                      Real-time Comments ({(photos[lightboxIndex].comments || []).length})
+                    </span>
+                    <span className="text-[8px] font-bold text-indigo-400">RAMS SHARED CHANNEL</span>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto pr-1 space-y-2.5 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent max-h-[160px] md:max-h-[30vh]">
+                    {!(photos[lightboxIndex].comments && photos[lightboxIndex].comments.length > 0) ? (
+                      <div className="flex flex-col items-center justify-center text-center h-full py-6 select-none bg-slate-950/20 rounded-xl border border-dashed border-white/5">
+                        <MessageSquare className="w-5 h-5 text-slate-700 mb-1" />
+                        <span className="text-[10px] text-slate-500 font-medium">No comments yet on this record.</span>
+                        <span className="text-[8px] text-slate-600 mt-0.5 font-sans">Be the first to share an observation.</span>
+                      </div>
+                    ) : (
+                      photos[lightboxIndex].comments.map((comment) => (
+                        <div key={comment.id} className="bg-slate-950/45 border border-white/5 rounded-xl p-2.5 space-y-1 text-left animate-in fade-in-50 duration-300">
+                          <div className="flex items-center justify-between select-none">
+                            <span className="text-[10px] font-extrabold text-indigo-300 font-sans tracking-wide truncate max-w-[120px]">
+                              👤 {comment.author}
+                            </span>
+                            <span className="text-[8px] font-mono text-slate-500">
+                              {new Date(comment.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-300 font-sans leading-relaxed break-words select-text">
+                            {comment.text}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* 3. Drop comment form */}
+                <div className="space-y-2 pt-2 border-t border-white/5">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      maxLength={18}
+                      placeholder="Comment as... (e.g. Officer Baniqued)"
+                      value={commentAuthor}
+                      onChange={(e) => setCommentAuthor(e.target.value)}
+                      className="w-2/5 bg-slate-950 border border-white/5 rounded-lg py-1.5 px-2 text-[10px] text-slate-300 placeholder-slate-650 focus:outline-none focus:border-indigo-500/20 font-bold"
+                    />
+                    <div className="w-3/5 text-[9px] text-slate-500 font-bold select-none text-right flex items-center justify-end">
+                      Press Send to broadcast
+                    </div>
+                  </div>
+
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleAddComment(photos[lightboxIndex].id, commentAuthor, commentText);
+                      setCommentText('');
+                    }}
+                    className="flex gap-2"
+                  >
+                    <input
+                      type="text"
+                      maxLength={140}
+                      placeholder="Type a real-time observation..."
+                      value={commentText}
+                      onChange={(e) => setCommentText(e.target.value)}
+                      className="flex-1 bg-slate-950 border border-white/10 rounded-xl py-2 px-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-505/50 font-medium"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!commentText.trim()}
+                      className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-45 text-white font-extrabold text-xs rounded-xl transition-all flex items-center justify-center flex-shrink-0 cursor-pointer shadow-md"
+                      title="Post Observe"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                    </button>
+                  </form>
+                </div>
+
               </div>
             </div>
           </motion.div>

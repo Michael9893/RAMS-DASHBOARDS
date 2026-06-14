@@ -33,12 +33,15 @@ service cloud.firestore {
 
     function isValidPhoto(data) {
       return data.keys().hasAll(['id', 'url', 'title', 'createdAt', 'downloads'])
-        && (data.keys().size() == 5 || (data.keys().size() == 6 && data.keys().hasAll(['description'])))
+        && data.keys().size() >= 5 && data.keys().size() <= 9
         && data.id is string && data.id.size() <= 128 && data.url is string && data.url.size() <= 20971520
         && data.title is string && data.title.size() <= 200
         && data.createdAt is string
         && data.downloads is int
-        && (!data.keys().hasAll(['description']) || (data.description is string && data.description.size() <= 1000));
+        && (!data.keys().hasAll(['description']) || (data.description is string && data.description.size() <= 1000))
+        && (!data.keys().hasAll(['type']) || (data.type is string && data.type.size() <= 20))
+        && (!data.keys().hasAll(['reactions']) || data.reactions is map)
+        && (!data.keys().hasAll(['comments']) || data.comments is list);
     }
 
     function isValidFile(data) {

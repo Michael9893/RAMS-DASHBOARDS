@@ -74,6 +74,18 @@
         "description": {
           "type": "string",
           "description": "Additional annotation descriptive metadata."
+        },
+        "type": {
+          "type": "string",
+          "description": "Media asset type, either image or video."
+        },
+        "reactions": {
+          "type": "object",
+          "description": "Dynamic emoji reactions with count values."
+        },
+        "comments": {
+          "type": "array",
+          "description": "Conversational records of comments posted on the asset."
         }
       },
       "required": ["id", "url", "title", "createdAt", "downloads"]
