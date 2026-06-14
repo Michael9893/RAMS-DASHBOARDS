@@ -19,7 +19,7 @@ service cloud.firestore {
     // Validation Blueprints
     function isValidNote(data) {
       return data.keys().hasAll(['id', 'text', 'color', 'x', 'y', 'createdAt'])
-        && data.keys().size() >= 6 && data.keys().size() <= 9
+        && data.keys().size() >= 6 && data.keys().size() <= 10
         && data.id is string && data.id.size() <= 128
         && data.text is string && data.text.size() <= 1000
         && data.color is string && data.color.size() <= 200
@@ -28,7 +28,8 @@ service cloud.firestore {
         && data.createdAt is string
         && (!data.keys().hasAll(['musicTitle']) || (data.musicTitle is string && data.musicTitle.size() <= 200))
         && (!data.keys().hasAll(['youtubeUrl']) || (data.youtubeUrl is string && data.youtubeUrl.size() <= 1000))
-        && (!data.keys().hasAll(['noteEmoji']) || (data.noteEmoji is string && data.noteEmoji.size() <= 100));
+        && (!data.keys().hasAll(['noteEmoji']) || (data.noteEmoji is string && data.noteEmoji.size() <= 100))
+        && (!data.keys().hasAll(['reactions']) || data.reactions is map);
     }
 
     function isValidPhoto(data) {

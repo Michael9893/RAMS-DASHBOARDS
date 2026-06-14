@@ -279,6 +279,7 @@ export default function App() {
     musicTitle?: string;
     youtubeUrl?: string;
     noteEmoji?: string;
+    reactions?: { [emoji: string]: number };
   }
 
   const boardRef = useRef<HTMLDivElement>(null);
@@ -407,6 +408,27 @@ export default function App() {
       await deleteDoc(doc(db, 'notes', id));
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, `notes/${id}`);
+    }
+  };
+
+  // Reactions persistent handler for memos/notes
+  const handleAddNoteReaction = async (noteId: string, emoji: string) => {
+    try {
+      const note = notes.find(n => n.id === noteId);
+      if (!note) return;
+      
+      const currentReactions = note.reactions || {};
+      const updatedReactions = {
+        ...currentReactions,
+        [emoji]: (currentReactions[emoji] || 0) + 1
+      };
+      
+      await setDoc(doc(db, 'notes', noteId), {
+        ...note,
+        reactions: updatedReactions
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `notes/${noteId}`);
     }
   };
 
@@ -1755,6 +1777,33 @@ export default function App() {
                             )}
                           </div>
                         )}
+
+                        {/* Interactive Reactions Bar */}
+                        <div className="mt-2 text-right">
+                          <div className="inline-flex flex-wrap gap-1 bg-black/15 px-1.5 py-0.5 rounded-lg border border-white/5 justify-end">
+                            {['❤️', '👍', '🔥', '🎉'].map((emoji) => {
+                              const count = note.reactions?.[emoji] || 0;
+                              return (
+                                <button
+                                  key={emoji}
+                                  type="button"
+                                  onClick={(ev) => {
+                                    ev.preventDefault();
+                                    ev.stopPropagation();
+                                    handleAddNoteReaction(note.id, emoji);
+                                  }}
+                                  className="flex items-center gap-0.5 px-1 py-0.5 rounded hover:bg-white/10 text-[9px] cursor-pointer transition-all active:scale-75 select-none"
+                                  title={`React with ${emoji}`}
+                                >
+                                  <span>{emoji} </span>
+                                  {count > 0 && (
+                                    <span className="font-mono font-bold text-[7px] text-indigo-300">{count}</span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
 
                         {/* Note footer and security triggers */}
                         <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/5 text-[8px] font-semibold select-none">
